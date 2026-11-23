@@ -12,7 +12,10 @@
     "build": "npm run build -w guardpulse",
     "typecheck": "tsc -p packages/guardpulse --noEmit",
     "test": "vitest run",
-    "demo": "npm run build && tsx examples/agent-demo/src/run.ts"
+    "demo": "npm run build && tsx examples/agent-demo/src/run.ts",
+    "build:web": "PAGES_BASE_PATH=/GuardPulse npm run build -w guardpulse-web",
+    "test:web": "node apps/web/e2e/smoke.mjs",
+    "deploy:pages": "scripts/deploy-pages.sh"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -20,6 +23,7 @@
     "@types/node": "^22.10.0",
     "@types/pg": "^8.23.1",
     "pg": "^8.23.1",
+    "playwright-core": "^1.65.1",
     "tsx": "^4.23.15",
     "typescript": "~5.9.3",
     "vitest": "^5.1.1",
