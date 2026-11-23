@@ -139,7 +139,11 @@ export class Baseline {
     const windowMs = this.opts.windowMs ?? 60_000;
     const window = Math.floor(event.ts / windowMs);
     let w = this.windows.get(key);
-    if (!w || w.window !== window) this.windows.set(key, (w = { window, count: 0, reported: false }));
+    if (!w || w.window !== window) {
+      // keys can be attacker-chosen (hosts), so drop finished windows once the map grows
+      if (this.windows.size > 10_000) for (const [k, v] of this.windows) if (v.window !== window) this.windows.delete(k);
+      this.windows.set(key, (w = { window, count: 0, reported: false }));
+    }
     w.count++;
     if (this.learning) {
       this.peaks.set(key, Math.max(this.peaks.get(key) ?? 0, w.count));

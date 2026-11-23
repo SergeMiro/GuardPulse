@@ -41,7 +41,7 @@ export function replay(recorded: GuardEvent[], opts: ReplayOptions = {}): Replay
   const decisions: ReplayDecision[] = [];
   for (const old of [...recorded].sort((a, b) => a.seq - b.seq)) {
     const { taintFrom, sensitiveFrom, host, ...data } = old.data;
-    const fresh = analyzer.process({ ...old, data, labels: [], findings: [], decision: undefined });
+    const fresh = analyzer.process({ ...old, data, labels: [], findings: [], decision: undefined }, { ...data, prior: old });
     events.push(fresh);
     decisions.push({ eventId: old.id, traceId: old.traceId, kind: old.kind, target: old.target, before: old.decision?.action, after: fresh.decision!.action, ruleId: fresh.decision?.ruleId });
   }

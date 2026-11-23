@@ -46,9 +46,23 @@ export class GuardBlockedError extends Error {
     readonly decision: Decision,
     readonly event: GuardEvent,
   ) {
-    super(`ShieldTrail blocked ${event.kind} ${event.target}: ${decision.reason}`);
+    super(`ShieldTrail blocked ${event.kind} ${event.target} (rule ${decision.ruleId}): ${decision.reason}`);
     this.name = 'GuardBlockedError';
   }
+}
+
+/** fetch bodies as inspectable text when possible; Blob and streams cannot be read without consuming them. */
+function bodyText(body: RequestInit['body']): { text?: string; opaque: boolean } {
+  if (body === undefined || body === null) return { opaque: false };
+  if (typeof body === 'string') return { text: body, opaque: false };
+  if (body instanceof URLSearchParams) return { text: body.toString(), opaque: false };
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return { text: new TextDecoder().decode(body as ArrayBuffer), opaque: false };
+  if (typeof FormData !== 'undefined' && body instanceof FormData) {
+    const parts: string[] = [];
+    body.forEach((v, k) => parts.push(`${k}=${typeof v === 'string' ? v : '[file]'}`));
+    return { text: parts.join('&'), opaque: false };
+  }
+  return { opaque: true };
 }
 
 const hex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -159,35 +173,41 @@ export class Trace {
     await this.begin();
     const event = this.guard.newEvent(this.traceId, 'tool_call', this.opts.agent, name, { args: redact(args, 500) });
     await this.gate(event, {});
+    let result: T;
     try {
-      const result = await run();
+      result = await run();
+    } catch (err) {
+      event.data.error = redact((err as Error)?.message ?? err, 500);
+      await this.guard.record(event);
+      throw err;
+    }
+    // the tool already ran: analysis problems must never turn its success into a failure
+    try {
       event.data.result = redact(result, 500);
       this.guard.analyzer.scanResult(event, result);
-      return result;
     } catch (err) {
-      event.data.error = String((err as Error)?.message ?? err);
-      throw err;
-    } finally {
-      await this.guard.record(event);
+      this.guard.options.onError?.(err);
     }
+    await this.guard.record(event);
+    return result;
   }
 
   /** fetch through ShieldTrail; the request never leaves when the policy blocks it. */
   async fetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
     await this.begin();
     const url = String(input);
-    const body = typeof init.body === 'string' ? init.body : init.body ? '[binary body]' : undefined;
-    const event = this.guard.newEvent(this.traceId, 'http', this.opts.agent, url, {
+    const { text: body, opaque } = bodyText(init.body);
+    const event = this.guard.newEvent(this.traceId, 'http', this.opts.agent, redact(url), {
       method: (init.method ?? 'GET').toUpperCase(),
-      body: redact(body, 500),
+      body: opaque ? '[uninspectable body]' : redact(body, 500),
     });
-    await this.gate(event, { body });
+    await this.gate(event, { body, opaqueBody: opaque, url });
     try {
       const res = await (this.guard.options.fetch ?? globalThis.fetch)(input, init);
       event.data.status = res.status;
       return res;
     } catch (err) {
-      event.data.error = String((err as Error)?.message ?? err);
+      event.data.error = redact((err as Error)?.message ?? err, 500);
       throw err;
     } finally {
       await this.guard.record(event);

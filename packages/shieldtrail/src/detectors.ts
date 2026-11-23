@@ -72,13 +72,25 @@ const SECRET_PATTERNS: Array<{ id: string; re: RegExp; severity: Severity; check
     severity: 'high',
     check: (m) => luhn(m.replace(/\D/g, '')),
   },
-  { id: 'email', re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, severity: 'medium' },
+  // bounded quantifiers: the unbounded form backtracks quadratically on long dotted input
+  { id: 'email', re: /\b[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}\b/g, severity: 'medium' },
 ];
+
+/** Any value as text without throwing: BigInt, circular objects and functions included. */
+export function toText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined || value === null) return '';
+  try {
+    return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
 
 /** Finds secrets and personal data in any value (objects are JSON-stringified). */
 export function detectSensitive(value: unknown): Finding[] {
   if (value === undefined || value === null) return [];
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  const text = toText(value);
   const findings: Finding[] = [];
   for (const { id, re, severity, check } of SECRET_PATTERNS) {
     const matches = (text.match(re) ?? []).filter((m) => !check || check(m));
@@ -96,7 +108,8 @@ export function detectSensitive(value: unknown): Finding[] {
 
 export function hostOf(url: string): string {
   try {
-    return new URL(url).hostname.toLowerCase();
+    // relative URLs resolve against the page in a browser (same origin is not egress)
+    return new URL(url, (globalThis as { location?: { href: string } }).location?.href).hostname.toLowerCase();
   } catch {
     return url.toLowerCase();
   }
@@ -136,8 +149,7 @@ export function maxSeverity(list: Severity[]): Severity | undefined {
 
 /** Replaces secrets with `[REDACTED:type]` and truncates, so stored events never hold the secret. */
 export function redact(value: unknown, max = 2000): string {
-  if (value === undefined || value === null) return '';
-  let text = typeof value === 'string' ? value : JSON.stringify(value);
+  let text = toText(value);
   for (const { id, re, check } of SECRET_PATTERNS) {
     text = text.replace(re, (m) => (!check || check(m) ? `[REDACTED:${id}]` : m));
   }

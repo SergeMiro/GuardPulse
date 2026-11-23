@@ -11,9 +11,12 @@ export interface EventStore {
 export class MemoryStore implements EventStore {
   private events: GuardEvent[] = [];
 
-  // shortcut: unbounded array, fine for demos and tests; use PostgresStore in production
+  /** Keeps the most recent `maxEvents` (default 100 000); use PostgresStore to keep everything. */
+  constructor(private readonly maxEvents = 100_000) {}
+
   async add(event: GuardEvent): Promise<void> {
     this.events.push(event);
+    if (this.events.length > this.maxEvents) this.events.splice(0, this.events.length - this.maxEvents);
   }
 
   async list(traceId?: string): Promise<GuardEvent[]> {

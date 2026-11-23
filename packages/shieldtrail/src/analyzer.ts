@@ -15,16 +15,33 @@ export interface AnalyzerOptions {
   allowedDomains: string[];
   /** Extra detectors run on every event, e.g. the Security Autopilot baseline. */
   observers?: Array<(event: GuardEvent) => Finding[]>;
+  /** Per-trace state kept for at most this many traces (least recently used dropped), default 10 000. */
+  maxTraces?: number;
 }
 
 /** Raw values used only for detection; the event itself stores redacted copies. */
 export interface RawPayload {
   text?: unknown;
   body?: unknown;
+  /** True when the request carries a body that cannot be inspected (Blob, stream…). */
+  opaqueBody?: boolean;
+  url?: string;
   result?: unknown;
+  /**
+   * Replay: the recorded event. Content findings (injection, secrets, drift) are taken from it
+   * instead of re-detected, because stored text is redacted and truncated.
+   */
+  prior?: GuardEvent;
 }
 
 const REDACTED = /\[REDACTED:[a-z_]+\]/;
+const SERIOUS_REDACTED = /\[REDACTED:(?!email)[a-z_]+\]/;
+const priorFindings = (prior: GuardEvent, test: (type: string) => boolean) => prior.findings.filter((f) => test(f.type));
+
+function queryOf(url: string): string {
+  const i = url.indexOf('?');
+  return i < 0 ? '' : url.slice(i + 1);
+}
 
 /**
  * Attack Chain Intelligence: keeps per-trace state (did an injection enter? did the agent touch
@@ -37,24 +54,29 @@ export class Analyzer {
 
   private state(traceId: string): TraceState {
     let st = this.traces.get(traceId);
-    if (!st) this.traces.set(traceId, (st = { sensitiveFrom: [] }));
+    if (st) this.traces.delete(traceId); // re-insert: Map order doubles as LRU order
+    else st = { sensitiveFrom: [] };
+    this.traces.set(traceId, st);
+    if (this.traces.size > (this.options.maxTraces ?? 10_000)) this.traces.delete(this.traces.keys().next().value!);
     return st;
   }
 
   /** Labels the event, attaches findings and the policy decision. Mutates and returns it. */
   process(event: GuardEvent, raw: RawPayload = event.data): GuardEvent {
     const st = this.state(event.traceId);
+    const prior = raw.prior;
     event.parentId ??= st.lastId;
     st.lastId = event.id;
     const add = (label: Label) => event.labels.includes(label) || event.labels.push(label);
 
     switch (event.kind) {
       case 'task':
-        st.allowedTools = event.data.allowedTools as string[] | undefined;
+        st.allowedTools = Array.isArray(event.data.allowedTools) ? (event.data.allowedTools as string[]) : undefined;
         break;
       case 'context': {
         if (event.data.untrusted !== false) add('untrusted');
-        const injection = event.data.untrusted === false ? [] : detectInjection(String(raw.text ?? ''));
+        const injection =
+          event.data.untrusted === false ? [] : prior ? priorFindings(prior, (t) => t === 'prompt_injection') : detectInjection(String(raw.text ?? ''));
         if (injection.length) {
           add('injection');
           event.findings.push(...injection);
@@ -71,28 +93,32 @@ export class Analyzer {
             message: `Tool "${event.target}" is not in the task scope (${st.allowedTools.join(', ')})`,
           });
         }
-        if (raw.result !== undefined) this.scanResult(event, raw.result);
         break;
       case 'http': {
-        const host = hostOf(event.target);
+        const url = raw.url ?? event.target;
+        const host = hostOf(url);
         event.data.host = host;
         if (!this.options.allowedDomains.some((g) => globMatch(g, host))) {
           add('egress');
           event.findings.push({ type: 'egress.unknown_domain', severity: 'low', message: `First-party allow-list does not cover ${host}` });
         }
-        const leaked = detectSensitive(raw.body);
-        if (leaked.length || REDACTED.test(String(raw.body ?? ''))) {
+        const query = queryOf(url);
+        const hasPayload = (raw.body !== undefined && raw.body !== '') || raw.opaqueBody === true || query !== '';
+        const leaked = prior
+          ? priorFindings(prior, (t) => t.startsWith('sensitive.'))
+          : [...detectSensitive(raw.body), ...detectSensitive(query)];
+        const opaqueAfterSecrets = raw.opaqueBody === true && st.sensitiveFrom.length > 0;
+        if (leaked.length || opaqueAfterSecrets || (prior ? prior.labels.includes('sensitive') : REDACTED.test(String(raw.body ?? '') + query))) {
           add('sensitive');
           event.findings.push(...leaked);
+          if (opaqueAfterSecrets && !leaked.length) {
+            event.findings.push({ type: 'sensitive.opaque_body', severity: 'high', message: 'Uninspectable body sent after the agent read sensitive data' });
+          }
         }
-        // only a request that carries a body can move data out
-        if (st.sensitiveFrom.length && event.labels.includes('egress') && raw.body !== undefined && raw.body !== '') {
+        // only a request that carries data (body or query string) can move data out
+        if (st.sensitiveFrom.length && event.labels.includes('egress') && hasPayload) {
           event.data.sensitiveFrom = [...st.sensitiveFrom];
-          event.findings.push({
-            type: 'exfil.sensitive_trace',
-            severity: 'high',
-            message: `Outbound request after the agent read sensitive data`,
-          });
+          event.findings.push({ type: 'exfil.sensitive_trace', severity: 'high', message: 'Outbound request after the agent read sensitive data' });
         }
         break;
       }
@@ -108,24 +134,26 @@ export class Analyzer {
       }
     }
 
-    for (const observe of this.options.observers ?? []) {
-      const drift = observe(event);
-      if (drift.length) {
-        add('drift');
-        event.findings.push(...drift);
-      }
+    const drift = prior ? priorFindings(prior, (t) => t.startsWith('drift.')) : (this.options.observers ?? []).flatMap((observe) => observe(event));
+    if (drift.length) {
+      add('drift');
+      event.findings.push(...drift);
     }
 
     event.decision = evaluate(event, this.options.policy);
+    // a tool's result arrives after its decision; replay keeps that order so decisions match
+    if (event.kind === 'tool_call' && (raw.result !== undefined || prior?.labels.includes('sensitive'))) this.scanResult(event, raw.result, prior);
     return event;
   }
 
   /** Called once a tool returned: marks the trace as having touched sensitive data. */
-  scanResult(event: GuardEvent, result: unknown): void {
-    const found = detectSensitive(result);
+  scanResult(event: GuardEvent, result: unknown, prior?: GuardEvent): void {
+    const found = prior ? priorFindings(prior, (t) => t.startsWith('sensitive.')) : detectSensitive(result);
     event.findings.push(...found);
     // a lone email in a ticket is routine; secrets, cards and tokens make the trace sensitive
-    const serious = found.some((f) => f.severity === 'high' || f.severity === 'critical') || /\[REDACTED:(?!email)[a-z_]+\]/.test(String(result));
+    const serious = prior
+      ? prior.labels.includes('sensitive')
+      : found.some((f) => f.severity === 'high' || f.severity === 'critical') || SERIOUS_REDACTED.test(String(result));
     if (!serious) return;
     if (!event.labels.includes('sensitive')) event.labels.push('sensitive');
     this.state(event.traceId).sensitiveFrom.push(event.id);
