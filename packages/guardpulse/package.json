@@ -1,0 +1,22 @@
+{
+  "name": "guardpulse",
+  "version": "0.1.0",
+  "description": "Attack Chain Intelligence and Security Autopilot for AI agents in Node.js / Next.js apps",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./postgres": { "types": "./dist/store/postgres.d.ts", "default": "./dist/store/postgres.js" },
+    "./collector": { "types": "./dist/collector.d.ts", "default": "./dist/collector.js" }
+  },
+  "bin": { "guardpulse": "./dist/cli.js" },
+  "files": ["dist", "README.md"],
+  "keywords": ["ai-agents", "mcp", "security", "prompt-injection", "opentelemetry", "attack-chain"],
+  "repository": { "type": "git", "url": "https://github.com/SergeMiro/GuardPulse.git", "directory": "packages/guardpulse" },
+  "engines": { "node": ">=20" },
+  "scripts": { "build": "tsc -p ." },
+  "peerDependencies": { "pg": ">=8", "@opentelemetry/api": ">=1.4" },
+  "peerDependenciesMeta": { "pg": { "optional": true }, "@opentelemetry/api": { "optional": true } }
+}
