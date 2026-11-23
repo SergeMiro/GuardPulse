@@ -7,3 +7,5 @@ export * from './guard.js';
 export * from './store/memory.js';
 export * from './autopilot.js';
 export * from './mcp.js';
+export * from './replay.js';
+export * from './exporters.js';
