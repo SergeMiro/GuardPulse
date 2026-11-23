@@ -12,7 +12,7 @@
     "build": "npm run build -w guardpulse",
     "typecheck": "tsc -p packages/guardpulse --noEmit",
     "test": "vitest run",
-    "demo": "tsx examples/agent-demo/src/run.ts"
+    "demo": "npm run build && tsx examples/agent-demo/src/run.ts"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

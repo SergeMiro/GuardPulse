@@ -77,7 +77,7 @@ export function buildChain(events: GuardEvent[]): Chain {
 
   const narrative: string[] = [];
   for (const e of sorted) {
-    const notable = e.labels.some((l) => l !== 'untrusted') || (e.decision && e.decision.action !== 'allow');
+    const notable = e.labels.some((l) => l !== 'untrusted' && l !== 'tainted') || (e.decision && e.decision.action !== 'allow');
     if (!notable) continue;
     let line = title(e);
     const top = e.findings.find((f) => f.severity === maxSeverity(e.findings.map((x) => x.severity)));

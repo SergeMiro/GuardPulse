@@ -85,7 +85,8 @@ export class Analyzer {
           add('sensitive');
           event.findings.push(...leaked);
         }
-        if (st.sensitiveFrom.length && event.labels.includes('egress')) {
+        // only a request that carries a body can move data out
+        if (st.sensitiveFrom.length && event.labels.includes('egress') && raw.body !== undefined && raw.body !== '') {
           event.data.sensitiveFrom = [...st.sensitiveFrom];
           event.findings.push({
             type: 'exfil.sensitive_trace',
@@ -122,9 +123,11 @@ export class Analyzer {
   /** Called once a tool returned: marks the trace as having touched sensitive data. */
   scanResult(event: GuardEvent, result: unknown): void {
     const found = detectSensitive(result);
-    if (!found.length && !REDACTED.test(String(result))) return;
-    if (!event.labels.includes('sensitive')) event.labels.push('sensitive');
     event.findings.push(...found);
+    // a lone email in a ticket is routine; secrets, cards and tokens make the trace sensitive
+    const serious = found.some((f) => f.severity === 'high' || f.severity === 'critical') || /\[REDACTED:(?!email)[a-z_]+\]/.test(String(result));
+    if (!serious) return;
+    if (!event.labels.includes('sensitive')) event.labels.push('sensitive');
     this.state(event.traceId).sensitiveFrom.push(event.id);
   }
 }
