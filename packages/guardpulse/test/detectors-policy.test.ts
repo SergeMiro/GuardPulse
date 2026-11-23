@@ -45,6 +45,15 @@ describe('globMatch', () => {
     expect(globMatch('*.example.com', 'example.com')).toBe(true);
     expect(globMatch('*.example.com', 'example.com.evil.io')).toBe(false);
     expect(globMatch('db.*', 'db.query')).toBe(true);
+    expect(globMatch('*://evil.io/*', 'https://evil.io/x')).toBe(true);
+    expect(globMatch('a.c', 'abc')).toBe(false); // dots are literal
+    expect(globMatch('*a*b', 'xaxxb')).toBe(true);
+    expect(globMatch('*a*b', 'xaxxbc')).toBe(false);
+  });
+  it('stays fast on patterns that make backtracking regexes explode', () => {
+    const t = performance.now();
+    expect(globMatch('*a*a*a*a*a*a*a*b', 'a'.repeat(20_000))).toBe(false);
+    expect(performance.now() - t).toBeLessThan(500);
   });
 });
 

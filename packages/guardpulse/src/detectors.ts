@@ -107,8 +107,25 @@ export function globMatch(pattern: string, value: string): boolean {
   const p = pattern.toLowerCase();
   const v = value.toLowerCase();
   if (p.startsWith('*.') && v === p.slice(2)) return true;
-  const re = new RegExp(`^${p.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
-  return re.test(v);
+  // two-pointer wildcard match: no RegExp, so no backtracking blow-up on attacker-chosen strings
+  let pi = 0;
+  let vi = 0;
+  let star = -1;
+  let mark = 0;
+  while (vi < v.length) {
+    if (pi < p.length && p[pi] !== '*' && p[pi] === v[vi]) {
+      pi++;
+      vi++;
+    } else if (pi < p.length && p[pi] === '*') {
+      star = pi++;
+      mark = vi;
+    } else if (star >= 0) {
+      pi = star + 1;
+      vi = ++mark;
+    } else return false;
+  }
+  while (p[pi] === '*') pi++;
+  return pi === p.length;
 }
 
 const ORDER: Severity[] = ['low', 'medium', 'high', 'critical'];
