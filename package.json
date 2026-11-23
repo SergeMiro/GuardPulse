@@ -1,5 +1,5 @@
 {
-  "name": "guardpulse-monorepo",
+  "name": "shieldtrail-monorepo",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -9,13 +9,14 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "npm run build -w guardpulse",
-    "typecheck": "tsc -p packages/guardpulse --noEmit",
+    "build": "npm run build -w shieldtrail",
+    "typecheck": "tsc -p packages/shieldtrail --noEmit",
     "test": "vitest run",
     "demo": "npm run build && tsx examples/agent-demo/src/run.ts",
-    "build:web": "PAGES_BASE_PATH=/GuardPulse npm run build -w guardpulse-web",
+    "build:web": "npm run build -w shieldtrail-web",
     "test:web": "node apps/web/e2e/smoke.mjs",
-    "deploy:pages": "scripts/deploy-pages.sh"
+    "deploy:pages": "scripts/deploy-pages.sh",
+    "shieldtrail": "node packages/shieldtrail/dist/cli.js"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

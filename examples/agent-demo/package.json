@@ -1,10 +1,10 @@
 {
-  "name": "guardpulse-agent-demo",
+  "name": "shieldtrail-agent-demo",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./src/scenario.ts",
   "exports": { ".": "./src/scenario.ts" },
   "scripts": { "start": "tsx src/run.ts" },
-  "dependencies": { "guardpulse": "*" }
+  "dependencies": { "shieldtrail": "*" }
 }

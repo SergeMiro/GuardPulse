@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { buildChain } from './chain.js';
-import { GuardPulse } from './guard.js';
+import { ShieldTrail } from './guard.js';
 import { shadowReport } from './replay.js';
 import { type EventStore, MemoryStore } from './store/memory.js';
 import type { EventKind, GuardEvent } from './types.js';
@@ -11,7 +11,7 @@ export interface CollectorOptions {
   host?: string;
   store?: EventStore;
   /** Analyses events that arrive without a decision (raw events from other services); its store is used. */
-  guard?: GuardPulse;
+  guard?: ShieldTrail;
   /** When set, every request needs `Authorization: Bearer <token>`. */
   token?: string;
   /** Max request body, default 1 MB. */
@@ -48,7 +48,7 @@ function readBody(req: IncomingMessage, max: number): Promise<string> {
 }
 
 export async function startCollector(opts: CollectorOptions = {}): Promise<{ server: Server; url: string; store: EventStore }> {
-  const guard = opts.guard ?? new GuardPulse({ store: opts.store ?? new MemoryStore() });
+  const guard = opts.guard ?? new ShieldTrail({ store: opts.store ?? new MemoryStore() });
   const store = guard.store;
 
   const send = (res: ServerResponse, status: number, body: unknown) => {

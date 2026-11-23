@@ -1,6 +1,6 @@
-# GuardPulse — plan of work and tests
+# ShieldTrail — plan of work and tests
 
-GuardPulse is a TypeScript SDK that sits inside a Node.js / Next.js app, records what AI agents
+ShieldTrail is a TypeScript SDK that sits inside a Node.js / Next.js app, records what AI agents
 do (prompts, untrusted context, MCP tool calls, outbound HTTP, errors), **correlates those events
 into attack chains**, and decides — in shadow or enforce mode — whether to stop the next step.
 
@@ -13,7 +13,7 @@ with replay before release.*
 
 ```
 Node.js / Next.js app
-  └─ guardpulse SDK (browser-safe core)
+  └─ shieldtrail SDK (browser-safe core)
        trace.context()  trace.tool()  trace.fetch()  trace.error()  guardMcpClient()
                 │
                 ▼
@@ -26,12 +26,12 @@ Node.js / Next.js app
        store (memory | PostgreSQL)   exporters (webhook, SIEM CEF/ECS, OpenTelemetry spans)
                 │
                 ▼
-       collector (node:http)  ──▶  GuardPulse Dashboard (Next.js + React Flow)
+       collector (node:http)  ──▶  ShieldTrail Dashboard (Next.js + React Flow)
 ```
 
 | Component | Choice | Where |
 |---|---|---|
-| SDK | TypeScript, zero runtime deps in core | `packages/guardpulse` |
+| SDK | TypeScript, zero runtime deps in core | `packages/shieldtrail` |
 | Runtime | Node.js ≥ 20 / Next.js route handlers / browser (demo) | core is browser-safe |
 | Event capture | explicit trace API + MCP client wrapper; picks up OTel trace ids | `guard.ts`, `mcp.ts` |
 | Analysis | deterministic rules + optional `analyst` hook for an LLM | `policy.ts`, `chain.ts` |
@@ -59,7 +59,7 @@ and socket needs a proxy or a sensor — out of scope for v0.
    *Tests*: injection phrases (incl. zero-width / encoded), secrets (AWS, GitHub, JWT, card with
    Luhn), rule matching by kind/target glob/taint/domain allow-list, shadow → `would_block`,
    per-rule enforce inside shadow mode.
-3. **Attack Chain Intelligence** — correlator + `GuardPulse` / `Trace` API (`context`, `tool`,
+3. **Attack Chain Intelligence** — correlator + `ShieldTrail` / `Trace` API (`context`, `tool`,
    `fetch`, `error`, `event`), `GuardBlockedError`, graph builder, narrative.
    *Tests*: injection → unexpected tool → egress builds one chain with data-flow edge and verdict
    `critical`; clean task stays `low`; blocked fetch never calls the network; tool result with
@@ -70,14 +70,14 @@ and socket needs a proxy or a sensor — out of scope for v0.
    *Tests*: new tool / new domain / rate spike / tool description change (rug-pull) after
    `freeze()`; nothing reported while learning; suggested rule is valid input for the engine.
 5. **Shadow mode report + replay + CLI** — `replay(events, policies)` re-runs recorded chains
-   through new rules and diffs decisions; `guardpulse replay events.jsonl --policy p.json`.
+   through new rules and diffs decisions; `shieldtrail replay events.jsonl --policy p.json`.
    *Tests*: tightening a rule turns `allow` into `block` and the diff says so; CLI exit code 1 when
    a new rule would block recorded traffic.
 6. **Stores, exporters, collector** — `MemoryStore`, `PostgresStore`, webhook / CEF / ECS / OTel
    exporters, `startCollector()` (`POST /v1/events`, `GET /v1/chains`, `GET /v1/chains/:id`,
    `GET /v1/health`).
    *Tests*: CEF escaping, webhook payload with mocked fetch, OTel exporter against a fake tracer,
-   collector round-trip over HTTP, Postgres round-trip (runs when `GUARDPULSE_PG_URL` is set,
+   collector round-trip over HTTP, Postgres round-trip (runs when `SHIELDTRAIL_PG_URL` is set,
    checked against a throwaway `postgres:16-alpine` container).
 7. **Demo agent** — scripted agent (no LLM key needed) reading a poisoned document, calling an
    MCP `db.query` it was not asked to, then POSTing data out. Runs `--mode off|shadow|enforce`.

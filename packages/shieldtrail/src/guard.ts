@@ -9,7 +9,7 @@ export interface Exporter {
   export(event: GuardEvent): void | Promise<void>;
 }
 
-/** The slice of `@opentelemetry/api` GuardPulse reads, so the package does not depend on it. */
+/** The slice of `@opentelemetry/api` ShieldTrail reads, so the package does not depend on it. */
 export interface OtelTraceApi {
   getActiveSpan(): { spanContext(): { traceId: string; spanId: string } } | undefined;
 }
@@ -46,14 +46,14 @@ export class GuardBlockedError extends Error {
     readonly decision: Decision,
     readonly event: GuardEvent,
   ) {
-    super(`GuardPulse blocked ${event.kind} ${event.target}: ${decision.reason}`);
+    super(`ShieldTrail blocked ${event.kind} ${event.target}: ${decision.reason}`);
     this.name = 'GuardBlockedError';
   }
 }
 
 const hex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 
-export class GuardPulse {
+export class ShieldTrail {
   readonly analyzer: Analyzer;
   readonly store: EventStore;
   private seq = 0;
@@ -122,7 +122,7 @@ export class Trace {
   private started = false;
 
   constructor(
-    readonly guard: GuardPulse,
+    readonly guard: ShieldTrail,
     readonly traceId: string,
     readonly opts: TraceOptions,
   ) {}
@@ -172,7 +172,7 @@ export class Trace {
     }
   }
 
-  /** fetch through GuardPulse; the request never leaves when the policy blocks it. */
+  /** fetch through ShieldTrail; the request never leaves when the policy blocks it. */
   async fetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
     await this.begin();
     const url = String(input);
@@ -212,4 +212,4 @@ export class Trace {
   }
 }
 
-export const createGuard = (options?: GuardOptions) => new GuardPulse(options);
+export const createGuard = (options?: GuardOptions) => new ShieldTrail(options);

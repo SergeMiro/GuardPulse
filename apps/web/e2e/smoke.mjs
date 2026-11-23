@@ -1,5 +1,5 @@
 // Smoke test of the built static site: node apps/web/e2e/smoke.mjs [screenshotDir]
-// Serves apps/web/out under /GuardPulse (like GitHub Pages) and drives local Chrome. browser: local
+// Serves apps/web/out under /ShieldTrail (like GitHub Pages) and drives local Chrome. browser: local
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
@@ -11,7 +11,7 @@ const shots = process.argv[2];
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.txt': 'text/plain', '.json': 'application/json' };
 
 const server = createServer((req, res) => {
-  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/GuardPulse/, '');
+  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/ShieldTrail/, '');
   let file = join(OUT, path);
   if (!file.startsWith(OUT) || !existsSync(file)) return res.writeHead(404).end();
   if (statSync(file).isDirectory()) file = join(file, 'index.html');
@@ -19,7 +19,7 @@ const server = createServer((req, res) => {
   createReadStream(file).pipe(res);
 }).listen(0, '127.0.0.1');
 await new Promise((r) => server.once('listening', r));
-const base = `http://127.0.0.1:${server.address().port}/GuardPulse`;
+const base = `http://127.0.0.1:${server.address().port}/ShieldTrail`;
 
 const browser = await chromium.launch({ channel: 'chrome' });
 const errors = [];
@@ -47,7 +47,7 @@ try {
       await page.getByRole('button', { name: /Run the attack/ }).click();
       await page.locator('.st-leaked').waitFor({ timeout: 10000 });
       await page.locator('.kpi b', { hasText: 'LEAKED' }).waitFor();
-      check(await page.locator('.leak-box').textContent().then((t) => t.includes('4111 1111 1111 1111')), 'without GuardPulse the cards leak');
+      check(await page.locator('.leak-box').textContent().then((t) => t.includes('4111 1111 1111 1111')), 'without ShieldTrail the cards leak');
 
       await page.getByRole('button', { name: /Shadow/ }).click();
       await page.getByRole('button', { name: /Run the attack/ }).click();

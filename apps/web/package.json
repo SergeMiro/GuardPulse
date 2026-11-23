@@ -1,17 +1,17 @@
 {
-  "name": "guardpulse-web",
+  "name": "shieldtrail-web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "npm run build -w guardpulse --prefix ../.. && next build",
+    "build": "npm run build -w shieldtrail --prefix ../.. && next build",
     "start": "npx serve out"
   },
   "dependencies": {
     "@xyflow/react": "^13.0.2",
-    "guardpulse": "*",
-    "guardpulse-agent-demo": "*",
+    "shieldtrail": "*",
+    "shieldtrail-agent-demo": "*",
     "next": "16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

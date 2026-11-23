@@ -10,7 +10,7 @@ export class PostgresStore implements EventStore {
   private readonly table: string;
 
   constructor(opts: PostgresStoreOptions = {}) {
-    const { table = 'guardpulse_events', ...rest } = opts;
+    const { table = 'shieldtrail_events', ...rest } = opts;
     if (!/^[a-z_][a-z0-9_]{0,62}$/.test(table)) throw new Error(`invalid table name: ${table}`);
     this.table = table;
     this.pool = 'pool' in rest ? rest.pool : new pg.Pool(rest);

@@ -1,6 +1,6 @@
 'use client';
-import { buildChain, type Chain, createGuard, type GuardEvent, shadowReport, type ShadowReport } from 'guardpulse';
-import { runScenario } from 'guardpulse-agent-demo';
+import { buildChain, type Chain, createGuard, type GuardEvent, shadowReport, type ShadowReport } from 'shieldtrail';
+import { runScenario } from 'shieldtrail-agent-demo';
 import { useCallback, useEffect, useState } from 'react';
 import { ChainGraph } from '../components/ChainGraph';
 

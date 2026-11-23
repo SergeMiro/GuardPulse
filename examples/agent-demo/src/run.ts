@@ -1,6 +1,6 @@
 /** npm run demo -- --mode enforce [--collector http://127.0.0.1:4319] [--out events.jsonl] */
 import { writeFile } from 'node:fs/promises';
-import { collectorExporter } from 'guardpulse';
+import { collectorExporter } from 'shieldtrail';
 import { type DemoMode, runScenario } from './scenario.js';
 
 const arg = (name: string) => {
@@ -13,7 +13,7 @@ if (!['off', 'shadow', 'enforce'].includes(mode)) throw new Error(`--mode must b
 const COLOR = { ok: '\x1b[32m', alert: '\x1b[33m', would_block: '\x1b[35m', blocked: '\x1b[31m', leaked: '\x1b[41;97m' } as const;
 const collector = arg('--collector');
 
-console.log(`\nGuardPulse demo — mode: ${mode === 'off' ? 'without GuardPulse' : mode}\n`);
+console.log(`\nShieldTrail demo — mode: ${mode === 'off' ? 'without ShieldTrail' : mode}\n`);
 const result = await runScenario(mode, {
   exporters: collector ? [collectorExporter(collector)] : undefined,
   onStep: (s) => console.log(`${COLOR[s.status]}${s.status.toUpperCase().padEnd(11)}\x1b[0m ${s.n}. ${s.title}\n            ${s.detail}`),
@@ -29,5 +29,5 @@ if (result.chain) {
 const out = arg('--out');
 if (out && result.guard) {
   await writeFile(out, (await result.guard.store.list()).map((e) => JSON.stringify(e)).join('\n'));
-  console.log(`\nEvents written to ${out} — try: npx guardpulse replay ${out} --policy policy.json`);
+  console.log(`\nEvents written to ${out} — try: npx shieldtrail replay ${out} --policy policy.json`);
 }

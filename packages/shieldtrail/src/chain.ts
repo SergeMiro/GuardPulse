@@ -82,7 +82,7 @@ export function buildChain(events: GuardEvent[]): Chain {
     let line = title(e);
     const top = e.findings.find((f) => f.severity === maxSeverity(e.findings.map((x) => x.severity)));
     if (top) line += ` — ${top.message}`;
-    if (e.decision && e.decision.action !== 'allow') line += ` → GuardPulse: ${e.decision.action.toUpperCase()} (${e.decision.ruleId})`;
+    if (e.decision && e.decision.action !== 'allow') line += ` → ShieldTrail: ${e.decision.action.toUpperCase()} (${e.decision.ruleId})`;
     narrative.push(line);
   }
 

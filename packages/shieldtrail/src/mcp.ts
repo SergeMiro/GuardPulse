@@ -1,6 +1,6 @@
 import type { Trace } from './guard.js';
 
-/** The slice of the MCP SDK `Client` GuardPulse wraps. */
+/** The slice of the MCP SDK `Client` ShieldTrail wraps. */
 export interface McpClientLike {
   callTool(params: { name: string; arguments?: Record<string, unknown> }, ...rest: never[]): Promise<unknown>;
   listTools?(...args: never[]): Promise<{ tools: Array<{ name: string; description?: string; inputSchema?: unknown }> }>;

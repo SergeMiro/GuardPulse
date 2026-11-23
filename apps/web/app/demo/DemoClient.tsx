@@ -1,11 +1,11 @@
 'use client';
-import { type DemoMode, type DemoResult, runScenario, type Step } from 'guardpulse-agent-demo';
+import { type DemoMode, type DemoResult, runScenario, type Step } from 'shieldtrail-agent-demo';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChainGraph } from '../components/ChainGraph';
 
 const MODES: Array<{ id: DemoMode; label: string; note: string }> = [
-  { id: 'off', label: 'Without\nGuardPulse', note: 'The agent calls tools and the network directly. Nothing is correlated, nothing is stopped.' },
-  { id: 'shadow', label: 'Shadow\nmode', note: 'GuardPulse watches and records what it would block. Production traffic is not touched.' },
+  { id: 'off', label: 'Without\nShieldTrail', note: 'The agent calls tools and the network directly. Nothing is correlated, nothing is stopped.' },
+  { id: 'shadow', label: 'Shadow\nmode', note: 'ShieldTrail watches and records what it would block. Production traffic is not touched.' },
   { id: 'enforce', label: 'Enforce\nmode', note: 'The exfiltration step is blocked. Everything else, including the reply to the customer, keeps working.' },
 ];
 
@@ -60,7 +60,7 @@ export function DemoClient() {
             {result?.mode === 'off' ? (
               <div>
                 <strong>No chain. No alert. No evidence.</strong>
-                Without GuardPulse the four steps are unrelated log lines — if they are logged at all.
+                Without ShieldTrail the four steps are unrelated log lines — if they are logged at all.
               </div>
             ) : (
               <div>{running ? 'Agent is working…' : 'Run the scenario to see the chain.'}</div>
@@ -88,7 +88,7 @@ export function DemoClient() {
       </div>
       {result?.leaked.length ? (
         <div className="leak-box">
-          <b>Received by exfil.attacker.dev{chain?.wouldBlock ? ' — *shadow mode: GuardPulse recorded “would block”' : ''}:</b>
+          <b>Received by exfil.attacker.dev{chain?.wouldBlock ? ' — *shadow mode: ShieldTrail recorded “would block”' : ''}:</b>
           <br />
           {result.leaked[0].body}
         </div>

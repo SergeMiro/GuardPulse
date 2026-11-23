@@ -1,5 +1,5 @@
 {
-  "name": "guardpulse",
+  "name": "shieldtrail",
   "version": "0.1.0",
   "description": "Attack Chain Intelligence and Security Autopilot for AI agents in Node.js / Next.js apps",
   "license": "MIT",
@@ -11,10 +11,10 @@
     "./postgres": { "types": "./dist/store/postgres.d.ts", "default": "./dist/store/postgres.js" },
     "./collector": { "types": "./dist/collector.d.ts", "default": "./dist/collector.js" }
   },
-  "bin": { "guardpulse": "./dist/cli.js" },
+  "bin": { "shieldtrail": "./dist/cli.js" },
   "files": ["dist", "README.md"],
   "keywords": ["ai-agents", "mcp", "security", "prompt-injection", "opentelemetry", "attack-chain"],
-  "repository": { "type": "git", "url": "https://github.com/SergeMiro/GuardPulse.git", "directory": "packages/guardpulse" },
+  "repository": { "type": "git", "url": "https://github.com/SergeMiro/ShieldTrail.git", "directory": "packages/shieldtrail" },
   "engines": { "node": ">=20" },
   "scripts": { "build": "tsc -p ." },
   "peerDependencies": { "pg": ">=8", "@opentelemetry/api": ">=1.4" },

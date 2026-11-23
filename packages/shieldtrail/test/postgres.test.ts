@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PostgresStore } from '../src/store/postgres.js';
 import { recordAttack } from './helpers/scenario.js';
 
-const url = process.env.GUARDPULSE_PG_URL;
+const url = process.env.SHIELDTRAIL_PG_URL;
 
 describe.skipIf(!url)('PostgresStore', () => {
   it('stores and reads back chains', async () => {

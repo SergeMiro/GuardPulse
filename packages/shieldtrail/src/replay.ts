@@ -64,7 +64,7 @@ export interface ShadowReport {
   blocked: number;
 }
 
-/** "What would GuardPulse have blocked?" — the report to read before switching a rule to enforce. */
+/** "What would ShieldTrail have blocked?" — the report to read before switching a rule to enforce. */
 export function shadowReport(events: GuardEvent[]): ShadowReport {
   const group = (action: Action) => {
     const by = new Map<string, { ruleId: string; count: number; targets: Set<string> }>();

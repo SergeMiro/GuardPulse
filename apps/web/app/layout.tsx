@@ -6,7 +6,7 @@ const sans = Inter({ subsets: ['latin'], variable: '--font-sans' });
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['400', '500', '700'] });
 
 export const metadata: Metadata = {
-  title: 'GuardPulse — attack chain intelligence for AI agents',
+  title: 'ShieldTrail — attack chain intelligence for AI agents',
   description:
     'Open-source TypeScript SDK that correlates prompt injection, MCP tool calls and outbound requests into one attack graph, and blocks the dangerous step — shadow mode first.',
   icons: { icon: `${process.env.PAGES_BASE_PATH ?? ''}/favicon.svg` },

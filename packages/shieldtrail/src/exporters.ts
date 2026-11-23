@@ -20,14 +20,14 @@ export function webhookExporter(opts: WebhookOptions): Exporter {
       const res = await (opts.fetch ?? globalThis.fetch)(opts.url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...opts.headers },
-        body: JSON.stringify({ source: 'guardpulse', event }),
+        body: JSON.stringify({ source: 'shieldtrail', event }),
       });
       if (!res.ok) throw new Error(`webhook ${opts.url} answered ${res.status}`);
     },
   };
 }
 
-/** Sends every event to a GuardPulse collector so the dashboard can show it. */
+/** Sends every event to a ShieldTrail collector so the dashboard can show it. */
 export function collectorExporter(baseUrl: string, opts: { token?: string; fetch?: typeof fetch } = {}): Exporter {
   // shortcut: one request per event; batch when event volume makes it matter
   return webhookExporter({
@@ -64,7 +64,7 @@ export function toCEF(e: GuardEvent): string {
     .filter(([, v]) => v !== undefined && v !== '')
     .map(([k, v]) => `${k}=${cefValue(String(v))}`)
     .join(' ');
-  return `CEF:0|GuardPulse|guardpulse|0.1.0|${cefHeader(signature)}|${cefHeader(name)}|${sev ? SEVERITY_SCORE[sev] : 1}|${extension}`;
+  return `CEF:0|ShieldTrail|shieldtrail|0.1.0|${cefHeader(signature)}|${cefHeader(name)}|${sev ? SEVERITY_SCORE[sev] : 1}|${extension}`;
 }
 
 /** Elastic Common Schema document. */
@@ -85,7 +85,7 @@ export function toECS(e: GuardEvent): Record<string, unknown> {
     url: e.kind === 'http' ? { full: e.target } : undefined,
     user: { name: e.actor },
     labels: Object.fromEntries(e.labels.map((l) => [l, true])),
-    guardpulse: { kind: e.kind, target: e.target, findings: e.findings },
+    shieldtrail: { kind: e.kind, target: e.target, findings: e.findings },
   };
 }
 
@@ -101,22 +101,22 @@ export interface OtelTracerLike {
   startSpan(name: string, options?: { attributes?: Record<string, string | number | boolean | string[]>; startTime?: number }): { end(): void };
 }
 
-/** One span per event, `guardpulse.*` attributes, so traces show up next to the app's own. */
+/** One span per event, `shieldtrail.*` attributes, so traces show up next to the app's own. */
 export function otelExporter(tracer: OtelTracerLike): Exporter {
   return {
     export(e) {
       const attributes: Record<string, string | number | boolean | string[]> = {
-        'guardpulse.trace_id': e.traceId,
-        'guardpulse.kind': e.kind,
-        'guardpulse.actor': e.actor,
-        'guardpulse.target': e.target,
-        'guardpulse.labels': e.labels,
-        'guardpulse.action': e.decision?.action ?? 'allow',
+        'shieldtrail.trace_id': e.traceId,
+        'shieldtrail.kind': e.kind,
+        'shieldtrail.actor': e.actor,
+        'shieldtrail.target': e.target,
+        'shieldtrail.labels': e.labels,
+        'shieldtrail.action': e.decision?.action ?? 'allow',
       };
-      if (e.decision?.ruleId) attributes['guardpulse.rule'] = e.decision.ruleId;
+      if (e.decision?.ruleId) attributes['shieldtrail.rule'] = e.decision.ruleId;
       const sev = maxSeverity(e.findings.map((f) => f.severity));
-      if (sev) attributes['guardpulse.severity'] = sev;
-      tracer.startSpan(`guardpulse.${e.kind}`, { attributes, startTime: e.ts }).end();
+      if (sev) attributes['shieldtrail.severity'] = sev;
+      tracer.startSpan(`shieldtrail.${e.kind}`, { attributes, startTime: e.ts }).end();
     },
   };
 }

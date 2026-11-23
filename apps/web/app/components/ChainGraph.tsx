@@ -1,7 +1,7 @@
 'use client';
 import { Background, Controls, type Edge, Handle, MarkerType, type Node, type NodeProps, Position, ReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { Chain, ChainNode } from 'guardpulse';
+import type { Chain, ChainNode } from 'shieldtrail';
 import { useEffect, useMemo, useState } from 'react';
 
 const LANES = ['task', 'context', 'tool_call', 'http', 'other'] as const;
@@ -36,7 +36,7 @@ function EventNode({ data }: NodeProps<Node<{ n: ChainNode; vertical: boolean }>
       )}
       {act && (
         <span className="act" style={{ background: ACTION_STYLE[act].bg, color: ACTION_STYLE[act].fg }}>
-          GUARDPULSE: {act.replace('_', ' ').toUpperCase()}
+          SHIELDTRAIL: {act.replace('_', ' ').toUpperCase()}
         </span>
       )}
       <Handle type="source" position={outPos} style={{ opacity: 0 }} />

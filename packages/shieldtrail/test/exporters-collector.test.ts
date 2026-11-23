@@ -12,7 +12,7 @@ const blocked: GuardEvent = {
 describe('exporters', () => {
   it('CEF escapes header pipes and extension = and newlines', () => {
     const line = toCEF(blocked);
-    expect(line).toMatch(/^CEF:0\|GuardPulse\|guardpulse\|0\.1\.0\|exfil\\\|rule\|Exfil after injection\|10\|/);
+    expect(line).toMatch(/^CEF:0\|ShieldTrail\|shieldtrail\|0\.1\.0\|exfil\\\|rule\|Exfil after injection\|10\|/);
     expect(line).toContain('request=https://evil.io/a\\=b');
     expect(line).toContain('msg=line1\\nline2');
     expect(line).toContain('act=block');
@@ -41,7 +41,7 @@ describe('exporters', () => {
     const spans: Array<{ name: string; attributes?: Record<string, unknown> }> = [];
     const tracer = { startSpan: (name: string, o?: { attributes?: Record<string, unknown> }) => (spans.push({ name, attributes: o?.attributes }), { end() {} }) };
     otelExporter(tracer).export(blocked);
-    expect(spans[0]).toMatchObject({ name: 'guardpulse.http', attributes: { 'guardpulse.action': 'block', 'guardpulse.severity': 'critical' } });
+    expect(spans[0]).toMatchObject({ name: 'shieldtrail.http', attributes: { 'shieldtrail.action': 'block', 'shieldtrail.severity': 'critical' } });
   });
 
   it('exporter failures never break the guarded app', async () => {

@@ -25,7 +25,7 @@ export function evaluate(event: GuardEvent, config: PolicyConfig): Decision {
   return { action: mode === 'enforce' ? 'block' : 'would_block', ruleId: rule.id, reason, recommendation: rule.recommendation };
 }
 
-/** The attack-chain rules GuardPulse ships with. */
+/** The attack-chain rules ShieldTrail ships with. */
 export const defaultRules: Rule[] = [
   {
     id: 'exfil-after-injection',

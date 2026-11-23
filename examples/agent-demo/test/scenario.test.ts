@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { runScenario } from '../src/scenario.js';
 
 describe('demo scenario', () => {
-  it('without GuardPulse the customer data reaches the attacker', async () => {
+  it('without ShieldTrail the customer data reaches the attacker', async () => {
     const r = await runScenario('off');
     expect(r.leaked).toHaveLength(1);
     expect(r.leaked[0].body).toContain('4111 1111 1111 1111');
     expect(r.steps.at(-2)!.status).toBe('leaked');
   });
 
-  it('shadow mode lets it through but says GuardPulse would have blocked it', async () => {
+  it('shadow mode lets it through but says ShieldTrail would have blocked it', async () => {
     const r = await runScenario('shadow');
     expect(r.leaked).toHaveLength(1);
     expect(r.chain!.wouldBlock).toBe(true);

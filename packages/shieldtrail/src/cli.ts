@@ -5,14 +5,14 @@ import { pathToFileURL } from 'node:url';
 import { replay, type ReplayOptions, shadowReport } from './replay.js';
 import type { GuardEvent } from './types.js';
 
-const USAGE = `guardpulse — attack chain intelligence for AI agents
+const USAGE = `shieldtrail — attack chain intelligence for AI agents
 
-  guardpulse replay <events.jsonl> --policy <policy.json> [--json]
+  shieldtrail replay <events.jsonl> --policy <policy.json> [--json]
       Re-run recorded events through a policy. Exit code 1 when the policy would stop
       traffic that was allowed when it was recorded (use it as a pre-release gate).
-  guardpulse report <events.jsonl> [--json]
+  shieldtrail report <events.jsonl> [--json]
       Shadow-mode report: what enforce mode would have blocked, grouped by rule.
-  guardpulse collector [--port 4319] [--pg <postgres-url>] [--token <secret>]
+  shieldtrail collector [--port 4319] [--pg <postgres-url>] [--token <secret>]
       Start the HTTP collector the dashboard reads from.
 
 policy.json: { "mode": "enforce", "allowedDomains": ["api.acme.com"], "rules": [...] }`;
@@ -63,7 +63,7 @@ export async function runCli(argv: string[], out: (line: string) => void = conso
     const store = pg ? new (await import('./store/postgres.js')).PostgresStore({ connectionString: pg }) : undefined;
     if (store) await store.init();
     const { url } = await startCollector({ port: Number(flag(argv, '--port') ?? 4319), store, token: flag(argv, '--token') });
-    out(`GuardPulse collector listening on ${url}`);
+    out(`ShieldTrail collector listening on ${url}`);
     return new Promise(() => {}); // runs until killed
   }
 
