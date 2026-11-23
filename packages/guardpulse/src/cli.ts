@@ -12,7 +12,7 @@ const USAGE = `guardpulse — attack chain intelligence for AI agents
       traffic that was allowed when it was recorded (use it as a pre-release gate).
   guardpulse report <events.jsonl> [--json]
       Shadow-mode report: what enforce mode would have blocked, grouped by rule.
-  guardpulse collector [--port 4319] [--pg <postgres-url>]
+  guardpulse collector [--port 4319] [--pg <postgres-url>] [--token <secret>]
       Start the HTTP collector the dashboard reads from.
 
 policy.json: { "mode": "enforce", "allowedDomains": ["api.acme.com"], "rules": [...] }`;
@@ -62,7 +62,7 @@ export async function runCli(argv: string[], out: (line: string) => void = conso
     const pg = flag(argv, '--pg');
     const store = pg ? new (await import('./store/postgres.js')).PostgresStore({ connectionString: pg }) : undefined;
     if (store) await store.init();
-    const { url } = await startCollector({ port: Number(flag(argv, '--port') ?? 4319), store });
+    const { url } = await startCollector({ port: Number(flag(argv, '--port') ?? 4319), store, token: flag(argv, '--token') });
     out(`GuardPulse collector listening on ${url}`);
     return new Promise(() => {}); // runs until killed
   }
