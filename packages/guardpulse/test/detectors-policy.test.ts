@@ -28,7 +28,8 @@ describe('detectInjection', () => {
 
 describe('detectSensitive', () => {
   it('finds credentials and keeps them out of evidence', () => {
-    const findings = detectSensitive({ key: ['AKIA', 'ABCDEFGHIJKLMNOP'].join('') // split so secret scanners skip the fixture, gh: `ghp_${'a'.repeat(36)}` });
+    // fixture split so secret scanners skip it
+    const findings = detectSensitive({ key: ['AKIA', 'ABCDEFGHIJKLMNOP'].join(''), gh: `ghp_${'a'.repeat(36)}` });
     expect(findings.map((f) => f.type)).toEqual(['sensitive.aws_access_key', 'sensitive.github_token']);
     expect(JSON.stringify(findings)).not.toContain('ABCDEFGHIJKLMNOP');
   });
