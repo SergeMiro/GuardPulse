@@ -2,6 +2,7 @@
   "name": "guardpulse-monorepo",
   "private": true,
   "license": "MIT",
+  "type": "module",
   "workspaces": ["packages/*", "apps/*", "examples/*"],
   "scripts": {
     "build": "npm run build -w guardpulse",
