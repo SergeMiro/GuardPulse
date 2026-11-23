@@ -1,9 +1,9 @@
 'use client';
 import { useState } from 'react';
 
-export function CodeTabs({ tabs }: { tabs: Array<{ label: string; code: React.ReactNode; raw: string }> }) {
+export function CodeTabs({ tabs, copy, copied }: { tabs: Array<{ label: string; code: React.ReactNode; raw: string }>; copy: string; copied: string }) {
   const [active, setActive] = useState(0);
-  const [copied, setCopied] = useState(false);
+  const [isCopied, setCopied] = useState(false);
   return (
     <div className="tabs">
       <div className="tablist" role="tablist" aria-label="Code examples">
@@ -21,7 +21,7 @@ export function CodeTabs({ tabs }: { tabs: Array<{ label: string; code: React.Re
             });
           }}
         >
-          {copied ? 'COPIED' : 'COPY'}
+          {isCopied ? copied : copy}
         </button>
       </div>
       <pre role="tabpanel">{tabs[active].code}</pre>

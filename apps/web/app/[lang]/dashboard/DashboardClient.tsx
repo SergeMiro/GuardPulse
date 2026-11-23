@@ -1,0 +1,181 @@
+'use client';
+import { type Chain, createGuard, type GuardEvent, shadowReport, type ShadowReport } from 'shieldtrail';
+import { runScenario } from 'shieldtrail-agent-demo';
+import { useCallback, useEffect, useState } from 'react';
+import { ChainGraph } from '../../components/ChainGraph';
+import { dicts, type Lang } from '../../i18n';
+
+type Summary = Omit<Chain, 'events' | 'nodes' | 'edges'> & { events: number };
+
+/** Demo traffic: the attack in blocking and watch-only mode plus a few ordinary tasks. */
+async function demoData(): Promise<{ chains: Chain[]; report: ShadowReport }> {
+  const attacks = await Promise.all([runScenario('enforce'), runScenario('shadow')]);
+  const guard = createGuard({ mode: 'shadow', allowedDomains: ['api.helpdesk.local', 'api.stripe.com'], fetch: (async () => new Response('{}')) as typeof fetch });
+  const billing = guard.startTrace({ agent: 'billing-bot', task: 'Sync invoices', allowedTools: ['invoices.*'] });
+  await billing.tool('invoices.list', {}, () => [{ id: 1 }]);
+  await billing.fetch('https://api.stripe.com/v1/invoices');
+  await billing.fetch('https://hooks.partner-erp.io/sync', { method: 'POST', body: '{"count":1}' });
+  const kb = guard.startTrace({ agent: 'kb-writer', task: 'Draft FAQ', allowedTools: ['docs.*'] });
+  await kb.context({ source: 'https://docs.helpdesk.local/faq', text: 'How to reset a password: open settings, then security.', untrusted: false });
+  await kb.tool('docs.write', { title: 'Password reset' }, () => ({ ok: true }));
+  await kb.error(new TypeError('Cannot read properties of undefined (reading "slug")'));
+  const chains = [...attacks.map((a) => a.chain!), ...(await guard.chains())];
+  const events: GuardEvent[] = chains.flatMap((c) => c.events);
+  return { chains, report: shadowReport(events) };
+}
+
+export function DashboardClient({ lang }: { lang: Lang }) {
+  const t = dicts[lang].dash;
+  const [api, setApi] = useState('');
+  const [draft, setDraft] = useState('http://127.0.0.1:4319');
+  const [chains, setChains] = useState<Summary[]>([]);
+  const [full, setFull] = useState<Record<string, Chain>>({});
+  const [report, setReport] = useState<ShadowReport | null>(null);
+  const [selected, setSelected] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('api');
+    if (q) {
+      setApi(q.replace(/\/$/, ''));
+      setDraft(q);
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    try {
+      if (!api) {
+        const d = await demoData();
+        setFull(Object.fromEntries(d.chains.map((c) => [c.traceId, c])));
+        setChains(d.chains.map(({ events, nodes, edges, ...s }) => ({ ...s, events: events.length })));
+        setReport(d.report);
+        setSelected((s) => s || d.chains[0].traceId);
+      } else {
+        const get = (p: string) => fetch(`${api}${p}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
+        const [list, rep] = await Promise.all([get('/v1/chains'), get('/v1/report')]);
+        setChains(list);
+        setReport(rep);
+        setSelected((s) => s || list[0]?.traceId || '');
+      }
+      setError('');
+    } catch (err) {
+      setError(`${t.error} ${api} (${(err as Error).message})`);
+    }
+  }, [api, t.error]);
+
+  useEffect(() => {
+    load();
+    if (!api) return;
+    const timer = setInterval(load, 3000);
+    return () => clearInterval(timer);
+  }, [api, load]);
+
+  useEffect(() => {
+    if (!api || !selected) return;
+    fetch(`${api}/v1/chains/${selected}`)
+      .then((r) => r.json())
+      .then((c: Chain) => setFull((f) => ({ ...f, [c.traceId]: c })))
+      .catch(() => undefined);
+  }, [api, selected, chains]);
+
+  const chain = full[selected];
+  const count = (pred: (c: Summary) => boolean) => chains.filter(pred).length;
+  const badge = (a?: string) => (a === 'block' ? 'blocked' : a === 'would_block' ? 'would_block' : a === 'alert' ? 'alert' : 'ok');
+
+  return (
+    <>
+      <form
+        className="connect"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSelected('');
+          setApi(draft.replace(/\/$/, ''));
+        }}
+      >
+        <b>{t.connectTitle}</b>
+        <span>{t.connectText}</span>
+        <label htmlFor="api" className="sr">Collector URL</label>
+        <input id="api" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <button className="btn btn-ghost btn-sm" type="submit">{t.connect}</button>
+        {api && (
+          <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setSelected(''); setApi(''); }}>
+            {t.backDemo}
+          </button>
+        )}
+      </form>
+      <div className="src">
+        <span className="dot" style={{ background: api ? (error ? 'var(--red)' : 'var(--green)') : 'var(--violet)' }} />
+        {api ? `${t.sourceLive} ${api}` : t.sourceDemo}
+      </div>
+      {error && <p className="leak-box" style={{ margin: '0 0 18px' }}>{error}</p>}
+
+      <div className="dash-kpis">
+        <div className="kpi"><small>{t.kpi.traces}</small><b>{chains.length}</b></div>
+        <div className="kpi"><small>{t.kpi.blocked}</small><b style={{ color: 'var(--red)' }}>{count((c) => c.blocked)}</b></div>
+        <div className="kpi"><small>{t.kpi.would}</small><b style={{ color: 'var(--amber)' }}>{count((c) => c.wouldBlock)}</b></div>
+        <div className="kpi"><small>{t.kpi.critical}</small><b className="sev-critical">{count((c) => c.severity === 'critical')}</b></div>
+      </div>
+
+      <div className="dash-grid">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div className="panel">
+            <div className="panel-h"><span>{t.chains}</span><span>{chains.length}</span></div>
+            <div>
+              {chains.map((c) => (
+                <button key={c.traceId} type="button" className="chain-row" aria-current={c.traceId === selected} onClick={() => setSelected(c.traceId)}>
+                  <span className="who">{c.actor}</span>
+                  <span className={`sev-${c.severity}`} style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
+                    {c.blocked ? t.badge.blocked : c.wouldBlock ? t.badge.would : c.severity}
+                  </span>
+                  <small>{c.task ?? '—'}</small>
+                  <small>{c.events} {t.events}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="panel">
+            <div className="panel-h"><span>{t.report}</span><span>{report?.events ?? 0}</span></div>
+            <div className="panel-b" style={{ fontSize: 14 }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--dim)' }}>{t.wouldBlock}</h3>
+              {report?.wouldBlock.length ? report.wouldBlock.map((g) => (
+                <div key={g.ruleId} className="drift"><b style={{ color: 'var(--amber)' }}>{g.ruleId}</b> × {g.count}<br /><small style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>{g.targets.join(', ')}</small></div>
+              )) : <p style={{ color: 'var(--muted)', margin: 0 }}>{t.nothing}</p>}
+              <h3 style={{ margin: '14px 0 8px', fontSize: 12, color: 'var(--dim)' }}>{t.alerts}</h3>
+              {report?.alerts.map((g) => (
+                <div key={g.ruleId} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span>{g.ruleId}</span><span>{g.count}</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h">
+            <span>{chain ? `${chain.actor} · ${chain.task ?? ''}` : t.select}</span>
+            {chain && <span className={`sev-${chain.severity}`}>{chain.severity}</span>}
+          </div>
+          <div className="graph-wrap">{chain ? <ChainGraph chain={chain} /> : <div className="graph-empty">{t.select}</div>}</div>
+          {chain && (
+            <div className="panel-b">
+              <h3 style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--dim)' }}>{t.decisions}</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr>{t.cols.map((c) => <th key={c} scope="col">{c}</th>)}</tr></thead>
+                  <tbody>
+                    {chain.events.map((e) => (
+                      <tr key={e.id}>
+                        <td>{e.seq}</td>
+                        <td style={{ fontFamily: 'var(--mono)', fontSize: 12.5, wordBreak: 'break-all' }}>{e.kind} · {e.target}</td>
+                        <td><span className={`status st-${badge(e.decision?.action)}`}>{e.decision?.action ?? '—'}</span></td>
+                        <td style={{ color: 'var(--muted)' }}>{e.decision?.ruleId ?? ''} {e.findings.map((f) => f.message).join(' · ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}

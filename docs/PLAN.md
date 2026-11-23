@@ -95,3 +95,16 @@ and socket needs a proxy or a sensor — out of scope for v0.
 
 `npm run typecheck && npm test` in the repo root; `npm run build -w apps/web` for web steps.
 GitHub Actions is not used for gating (account-level billing issue), so the local gates are the gates.
+
+## Iteration 2 (23.11.2026)
+
+- Renamed GuardPulse → ShieldTrail (package, CLI, repo, site under `/ShieldTrail`).
+- Independent review → 9 fixes with tests in `packages/shieldtrail/test/hardening.test.ts` and the
+  collector tests (ReDoS, collector origin allow-list + redaction + shape checks, URL/error
+  redaction, non-string bodies, safe serialisation, replay fidelity, bounded memory, relative URLs).
+- Site rebuilt in English and French (`/en/`, `/fr/`, root picks by browser language), light and
+  dark theme (system default + toggle), a step-by-step *Get started* page, and a guided demo that
+  plays the attack step by step and builds the graph as it goes.
+- Smoke test covers: language redirect, both locales, theme toggle persistence, all three demo
+  modes, the start page, phone width, and the dashboard against a live collector.
+

@@ -7,18 +7,21 @@ import { useEffect, useMemo, useState } from 'react';
 const LANES = ['task', 'context', 'tool_call', 'http', 'other'] as const;
 const LANE_TITLE = { task: 'agent', context: 'input', tool_call: 'tools / MCP', http: 'network', other: 'app' };
 const laneOf = (kind: string) => (LANES.includes(kind as never) ? kind : 'other') as (typeof LANES)[number];
+const EDGE = { taint: '#ff3d7f', data: '#f59e0b', sequence: 'var(--edge-seq)' };
 
 const ACTION_STYLE: Record<string, { bg: string; fg: string }> = {
   block: { bg: '#ff5a5f', fg: '#fff' },
   would_block: { bg: '#ffb547', fg: '#1a1206' },
-  alert: { bg: 'rgba(255,181,71,0.15)', fg: '#ffb547' },
+  alert: { bg: 'var(--amber-soft)', fg: 'var(--amber)' },
 };
 
-function EventNode({ data }: NodeProps<Node<{ n: ChainNode; vertical: boolean }>>) {
-  const n = data.n;
-  const [inPos, outPos] = data.vertical ? [Position.Top, Position.Bottom] : [Position.Left, Position.Right];
+type EventData = { n: ChainNode; vertical: boolean; current: boolean };
+
+function EventNode({ data }: NodeProps<Node<EventData>>) {
+  const { n, vertical, current } = data;
+  const [inPos, outPos] = vertical ? [Position.Top, Position.Bottom] : [Position.Left, Position.Right];
   const act = n.action && n.action !== 'allow' ? n.action : undefined;
-  const cls = ['gp-node', `k-${n.kind}`, act ? `a-${act}` : '', n.labels.includes('injection') ? 'inj' : ''].join(' ');
+  const cls = ['gp-node', act ? `a-${act}` : '', n.labels.includes('injection') ? 'inj' : '', current ? 'current' : ''].join(' ');
   return (
     <div className={cls}>
       <Handle type="target" position={inPos} style={{ opacity: 0 }} />
@@ -36,7 +39,7 @@ function EventNode({ data }: NodeProps<Node<{ n: ChainNode; vertical: boolean }>
       )}
       {act && (
         <span className="act" style={{ background: ACTION_STYLE[act].bg, color: ACTION_STYLE[act].fg }}>
-          SHIELDTRAIL: {act.replace('_', ' ').toUpperCase()}
+          {act.replace('_', ' ').toUpperCase()}
         </span>
       )}
       <Handle type="source" position={outPos} style={{ opacity: 0 }} />
@@ -63,12 +66,17 @@ function useVertical(): boolean {
   return vertical;
 }
 
-export function ChainGraph({ chain }: { chain: Chain }) {
+/**
+ * The attack chain as a graph. `visibleIds` reveals the chain step by step (all nodes when
+ * omitted); `currentId` outlines the node of the step being played.
+ */
+export function ChainGraph({ chain, visibleIds, currentId }: { chain: Chain; visibleIds?: Set<string>; currentId?: string }) {
   const vertical = useVertical();
   const { nodes, edges } = useMemo(() => {
     const used = LANES.filter((lane) => chain.nodes.some((n) => laneOf(n.kind) === lane));
     const lane = (kind: string) => used.indexOf(laneOf(kind));
     const pos = (i: number, kind: string) => (vertical ? { x: lane(kind) * 200, y: i * 125 } : { x: i * 205, y: lane(kind) * 120 });
+    const shown = (id: string) => !visibleIds || visibleIds.has(id);
     const nodes: Node[] = [
       ...used.map((l) => ({
         id: `lane-${l}`,
@@ -78,25 +86,31 @@ export function ChainGraph({ chain }: { chain: Chain }) {
         draggable: false,
         selectable: false,
       })),
-      ...chain.nodes.map((n, i) => ({ id: n.id, type: 'event', position: pos(i, n.kind), data: { n, vertical } })),
+      // not-yet-revealed nodes stay mounted but invisible, so fitView frames the whole chain from the start
+      ...chain.nodes.map((n, i) => ({
+        id: n.id,
+        type: 'event',
+        position: pos(i, n.kind),
+        style: shown(n.id) ? undefined : { opacity: 0, pointerEvents: 'none' as const },
+        data: { n, vertical, current: n.id === currentId },
+      })),
     ];
-    const edges: Edge[] = chain.edges.map((e) => {
-      const color = e.type === 'taint' ? '#ff3d7f' : e.type === 'data' ? '#ffb547' : '#4a4a72';
-      return {
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        type: e.type === 'sequence' ? 'smoothstep' : 'default',
-        animated: e.type !== 'sequence',
-        label: e.type === 'sequence' ? undefined : e.type === 'taint' ? 'injected instructions' : 'sensitive data',
-        labelStyle: { fill: color, fontFamily: 'var(--mono)', fontSize: 10 },
-        labelBgStyle: { fill: '#0c0c16' },
-        style: { stroke: color, strokeWidth: e.type === 'sequence' ? 1.4 : 2 },
-        markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
-      };
-    });
+    const edges: Edge[] = chain.edges
+      .filter((e) => shown(e.source) && shown(e.target))
+      .map((e) => {
+        const color = EDGE[e.type];
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          type: e.type === 'sequence' ? 'smoothstep' : 'default',
+          animated: e.type !== 'sequence',
+          style: { stroke: color, strokeWidth: e.type === 'sequence' ? 1.4 : 2.2 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: e.type === 'sequence' ? '#8a8aa8' : color, width: 16, height: 16 },
+        };
+      });
     return { nodes, edges };
-  }, [chain, vertical]);
+  }, [chain, vertical, visibleIds, currentId]);
 
   return (
     <ReactFlow
@@ -107,10 +121,9 @@ export function ChainGraph({ chain }: { chain: Chain }) {
       fitView
       fitViewOptions={{ padding: 0.12 }}
       minZoom={0.2}
-      proOptions={{ hideAttribution: false }}
       nodesConnectable={false}
     >
-      <Background gap={22} size={1} color="#22223a" />
+      <Background gap={22} size={1} />
       <Controls showInteractive={false} />
     </ReactFlow>
   );

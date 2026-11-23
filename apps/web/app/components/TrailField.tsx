@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 
 /** Drifting nodes; now and then a pulse runs along an edge, like an event travelling a chain. */
-export function PulseField() {
+export function TrailField() {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -101,5 +101,5 @@ export function PulseField() {
     };
   }, []);
 
-  return <canvas ref={ref} className="pulse-field" style={{ width: '100%', height: '100%' }} aria-hidden="true" />;
+  return <canvas ref={ref} className="trail-field" aria-hidden="true" />;
 }

@@ -10,9 +10,10 @@
 </p>
 
 <p align="center">
-  <a href="https://sergemiro.github.io/ShieldTrail/demo/"><b>Live demo</b></a> ·
-  <a href="https://sergemiro.github.io/ShieldTrail/">Website</a> ·
-  <a href="https://sergemiro.github.io/ShieldTrail/dashboard/">Dashboard</a> ·
+  <a href="https://sergemiro.github.io/ShieldTrail/en/demo/"><b>Live demo</b></a> ·
+  <a href="https://sergemiro.github.io/ShieldTrail/">Website (EN / FR)</a> ·
+  <a href="https://sergemiro.github.io/ShieldTrail/en/start/">Get started</a> ·
+  <a href="https://sergemiro.github.io/ShieldTrail/en/dashboard/">Dashboard</a> ·
   <a href="docs/PLAN.md">Plan & tests</a>
 </p>
 
@@ -50,6 +51,9 @@ application**:
 | Sees non-instrumented processes | yes | — | no: pair it with a proxy |
 
 ## Install
+
+> Inside this repository the CLI is `npm run shieldtrail -- <command>` (works right after
+> `npm install`, as soon as `npm run build` has run). Once installed as a package it is `npx shieldtrail`.
 
 Not on the npm registry yet. Until then, build it from this repo:
 
@@ -165,13 +169,13 @@ createGuard({
 ## Shadow first, then enforce
 
 1. **Observe** with `mode: 'shadow'`. Nothing is stopped; decisions are recorded as `would_block`.
-2. **Review** `npx shieldtrail report events.jsonl` (or `/v1/report` on the collector).
+2. **Review** `npm run shieldtrail -- report events.jsonl` (or `/v1/report` on the collector).
 3. **Enforce** only the rules you trust, with a per-rule `mode: 'enforce'`.
 4. **Replay before release:** re-run recorded chains through the next policy. Exit code 1 means the
    new policy would stop traffic that was allowed when recorded.
 
 ```bash
-npx shieldtrail replay events.jsonl --policy policy.next.json
+npm run shieldtrail -- replay events.jsonl --policy policy.next.json
 # 2 events replayed, 1 decisions changed
 #   + STOP  http https://api.partner.io/invoices  (alert → block, rule no-unknown-egress)
 ```
@@ -179,17 +183,21 @@ npx shieldtrail replay events.jsonl --policy policy.next.json
 ## Collector and dashboard
 
 ```bash
-npx shieldtrail collector --port 4319                       # in-memory
-npx shieldtrail collector --pg postgres://user:pass@host/db  # PostgreSQL
-npx shieldtrail collector --token "$SHIELDTRAIL_TOKEN"        # bearer auth on every request
+npm run shieldtrail -- collector --port 4319                        # in-memory
+npm run shieldtrail -- collector --pg postgres://user:pass@host/db   # PostgreSQL
+npm run shieldtrail -- collector --token "$SHIELDTRAIL_TOKEN"         # bearer auth on every request
+npm run shieldtrail -- collector --allow-origin https://soc.acme.com # let another dashboard origin read it
 ```
 
 Endpoints: `POST /v1/events`, `GET /v1/chains`, `GET /v1/chains/:id`, `GET /v1/report`,
-`GET /v1/health`. Binds to `127.0.0.1` by default; `--token` (or `token`) turns on bearer auth. Events that
-arrive without a decision (from other services) are analysed on arrival.
+`GET /v1/health`. It binds to `127.0.0.1`. Browsers can only read it from the hosted dashboard and
+`http://localhost:3000` unless `--allow-origin` adds more, so a web page you happen to visit cannot
+read your traces. POSTs must be JSON, every event is shape-checked and redacted before storage, and
+`--token` turns on bearer auth. Events that arrive without a decision (from other services) are
+analysed on arrival.
 
 Open the dashboard with your collector:
-`https://sergemiro.github.io/ShieldTrail/dashboard/?api=http://127.0.0.1:4319`
+`https://sergemiro.github.io/ShieldTrail/en/dashboard/?api=http://127.0.0.1:4319`
 
 ## SIEM and OpenTelemetry
 
@@ -221,7 +229,8 @@ npm run demo -- --mode enforce   # blocked, chain saved, app keeps working
 npm test                 # vitest: SDK, real MCP SDK integration, collector over HTTP, demo scenario
 SHIELDTRAIL_PG_URL=postgres://postgres:pw@127.0.0.1:5432/postgres npm test   # + PostgresStore
 npm run typecheck
-npm run build:web && npm run test:web   # static site + Playwright smoke test (local Chrome)
+npm run dev -w shieldtrail-web          # site locally: http://localhost:3000/ShieldTrail/en/
+npm run build:web && npm run test:web   # static EN/FR site + Playwright smoke test (local Chrome)
 npm run deploy:pages                    # publish the site to gh-pages
 ```
 
