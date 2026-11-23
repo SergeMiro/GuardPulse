@@ -61,7 +61,7 @@ describe('evaluate', () => {
   it('lets one rule enforce while the rest stays in shadow', () => {
     const rules = defaultRules.map((r) => (r.id === 'exfil-after-injection' ? { ...r, mode: 'enforce' as const } : r));
     expect(evaluate(exfil, { mode: 'shadow', rules }).action).toBe('block');
-    expect(evaluate(ev({ kind: 'tool_call', labels: ['tainted', 'unexpected_tool'] }), { mode: 'shadow', rules }).action).toBe('would_block');
+    expect(evaluate(ev({ labels: ['sensitive', 'egress'] }), { mode: 'shadow', rules }).action).toBe('would_block');
   });
   it('alerts on a plain unknown domain and allows the rest', () => {
     expect(evaluate(ev({ labels: ['egress'] }), shadow).action).toBe('alert');

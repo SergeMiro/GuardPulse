@@ -1,3 +1,7 @@
 export * from './types.js';
 export * from './detectors.js';
 export * from './policy.js';
+export * from './analyzer.js';
+export * from './chain.js';
+export * from './guard.js';
+export * from './store/memory.js';

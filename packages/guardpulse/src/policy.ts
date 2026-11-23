@@ -45,8 +45,9 @@ export const defaultRules: Rule[] = [
     id: 'tool-after-injection',
     description: 'Tool outside the task scope called after a prompt injection',
     match: { kind: 'tool_call', labels: ['tainted', 'unexpected_tool'] },
-    action: 'block',
-    recommendation: 'Restrict allowedTools for this task and review the tool permissions of the agent.',
+    // alert by default: allowedTools lists are rarely complete, so blocking here breaks apps; switch to block once tuned
+    action: 'alert',
+    recommendation: 'Restrict allowedTools for this task, then turn this rule into a block.',
   },
   {
     id: 'unknown-domain',

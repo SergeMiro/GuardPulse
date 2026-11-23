@@ -116,3 +116,13 @@ export const severityRank = (s: Severity): number => ORDER.indexOf(s);
 export function maxSeverity(list: Severity[]): Severity | undefined {
   return list.reduce<Severity | undefined>((a, b) => (a === undefined || severityRank(b) > severityRank(a) ? b : a), undefined);
 }
+
+/** Replaces secrets with `[REDACTED:type]` and truncates, so stored events never hold the secret. */
+export function redact(value: unknown, max = 2000): string {
+  if (value === undefined || value === null) return '';
+  let text = typeof value === 'string' ? value : JSON.stringify(value);
+  for (const { id, re, check } of SECRET_PATTERNS) {
+    text = text.replace(re, (m) => (!check || check(m) ? `[REDACTED:${id}]` : m));
+  }
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}

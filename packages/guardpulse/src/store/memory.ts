@@ -1,0 +1,28 @@
+import type { GuardEvent } from '../types.js';
+
+export interface EventStore {
+  add(event: GuardEvent): Promise<void>;
+  /** Events of one trace, or all events when traceId is omitted. */
+  list(traceId?: string): Promise<GuardEvent[]>;
+  /** Trace ids, most recent first. */
+  traces(limit?: number): Promise<string[]>;
+}
+
+export class MemoryStore implements EventStore {
+  private events: GuardEvent[] = [];
+
+  // shortcut: unbounded array, fine for demos and tests; use PostgresStore in production
+  async add(event: GuardEvent): Promise<void> {
+    this.events.push(event);
+  }
+
+  async list(traceId?: string): Promise<GuardEvent[]> {
+    return traceId ? this.events.filter((e) => e.traceId === traceId) : [...this.events];
+  }
+
+  async traces(limit = 100): Promise<string[]> {
+    const seen = new Set<string>();
+    for (let i = this.events.length - 1; i >= 0 && seen.size < limit; i--) seen.add(this.events[i].traceId);
+    return [...seen];
+  }
+}
