@@ -5,3 +5,5 @@ export * from './analyzer.js';
 export * from './chain.js';
 export * from './guard.js';
 export * from './store/memory.js';
+export * from './autopilot.js';
+export * from './mcp.js';

@@ -3,7 +3,11 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "workspaces": ["packages/*", "apps/*", "examples/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "examples/*"
+  ],
   "scripts": {
     "build": "npm run build -w guardpulse",
     "typecheck": "tsc -p packages/guardpulse --noEmit",
@@ -11,9 +15,11 @@
     "demo": "tsx examples/agent-demo/src/run.ts"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@types/node": "^22.10.0",
     "tsx": "^4.23.15",
     "typescript": "~5.9.3",
-    "vitest": "^5.1.1"
+    "vitest": "^5.1.1",
+    "zod": "^4.6.7"
   }
 }
