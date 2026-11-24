@@ -1,6 +1,6 @@
 import { detectInjection, detectSensitive, globMatch, highEntropyParts, hostOf, toText } from './detectors.js';
 import { evaluate, RAW_ARGS } from './policy.js';
-import type { Finding, GuardEvent, Label, PolicyConfig } from './types.js';
+import type { Budget, Finding, GuardEvent, Label, PolicyConfig } from './types.js';
 
 interface TraceState {
   allowedTools?: string[];
@@ -9,6 +9,12 @@ interface TraceState {
   lastId?: string;
   /** Earlier events of the trace, for sequence rules (bounded). */
   history: GuardEvent[];
+  /** Extra allowed domains for this task only. */
+  domains?: string[];
+  budget?: Budget;
+  startTs?: number;
+  toolCalls: number;
+  perTool: Map<string, number>;
 }
 
 export interface AnalyzerOptions {
@@ -55,13 +61,15 @@ function queryOf(url: string): string {
  */
 export class Analyzer {
   private traces = new Map<string, TraceState>();
+  /** Kill switch: when set, every tool call and outbound request is blocked, whatever the mode. */
+  halted?: string;
 
   constructor(readonly options: AnalyzerOptions) {}
 
   private state(traceId: string): TraceState {
     let st = this.traces.get(traceId);
     if (st) this.traces.delete(traceId); // re-insert: Map order doubles as LRU order
-    else st = { sensitiveFrom: [], history: [] };
+    else st = { sensitiveFrom: [], history: [], toolCalls: 0, perTool: new Map() };
     this.traces.set(traceId, st);
     if (this.traces.size > (this.options.maxTraces ?? 10_000)) this.traces.delete(this.traces.keys().next().value!);
     return st;
@@ -78,6 +86,9 @@ export class Analyzer {
     switch (event.kind) {
       case 'task':
         st.allowedTools = Array.isArray(event.data.allowedTools) ? (event.data.allowedTools as string[]) : undefined;
+        st.domains = Array.isArray(event.data.allowedDomains) ? (event.data.allowedDomains as string[]) : undefined;
+        st.budget = event.data.budget && typeof event.data.budget === 'object' ? (event.data.budget as Budget) : undefined;
+        st.startTs = event.ts;
         break;
       case 'context': {
         if (event.data.untrusted !== false) add('untrusted');
@@ -104,7 +115,7 @@ export class Analyzer {
         const url = raw.url ?? event.target;
         const host = hostOf(url);
         event.data.host = host;
-        if (!this.options.allowedDomains.some((g) => globMatch(g, host))) {
+        if (![...this.options.allowedDomains, ...(st.domains ?? [])].some((g) => globMatch(g, host))) {
           add('egress');
           event.findings.push({ type: 'egress.unknown_domain', severity: 'low', message: `First-party allow-list does not cover ${host}` });
         }
@@ -134,6 +145,25 @@ export class Analyzer {
           event.findings.push({ type: 'exfil.sensitive_trace', severity: 'high', message: 'Outbound request after the agent read sensitive data' });
         }
         break;
+      }
+    }
+
+    if ((event.kind === 'tool_call' || event.kind === 'http') && st.budget) {
+      const over: string[] = [];
+      const { maxToolCalls, maxCallsPerTool, maxDurationMs } = st.budget;
+      if (event.kind === 'tool_call') {
+        st.toolCalls++;
+        const n = (st.perTool.get(event.target) ?? 0) + 1;
+        st.perTool.set(event.target, n);
+        if (maxToolCalls !== undefined && st.toolCalls > maxToolCalls) over.push(`${st.toolCalls} tool calls (budget ${maxToolCalls})`);
+        if (maxCallsPerTool !== undefined && n > maxCallsPerTool) over.push(`${n} calls of ${event.target} (budget ${maxCallsPerTool}), likely a loop`);
+      }
+      if (maxDurationMs !== undefined && st.startTs !== undefined && event.ts - st.startTs > maxDurationMs) {
+        over.push(`running for ${Math.round((event.ts - st.startTs) / 1000)} s (budget ${Math.round(maxDurationMs / 1000)} s)`);
+      }
+      if (over.length) {
+        add('over_budget');
+        event.findings.push({ type: 'budget.exceeded', severity: 'medium', message: `Task over budget: ${over.join('; ')}` });
       }
     }
 
@@ -168,6 +198,12 @@ export class Analyzer {
     if (raw.args !== undefined) holder[RAW_ARGS] = raw.args;
     event.decision = evaluate(event, this.options.policy, st.history);
     delete holder[RAW_ARGS];
+    const halted = prior ? (prior.data.halted as string | undefined) : this.halted;
+    if (halted && (event.kind === 'tool_call' || event.kind === 'http')) {
+      event.data.halted = halted;
+      event.findings.push({ type: 'kill_switch', severity: 'high', message: `Kill switch is on: ${halted}` });
+      event.decision = { action: 'block', ruleId: 'kill-switch', reason: `Kill switch: ${halted}`, recommendation: 'Call resume() once the incident is understood.' };
+    }
     st.history.push(event);
     if (st.history.length > 200) st.history.shift();
     // a tool's result arrives after its decision; replay keeps that order so decisions match

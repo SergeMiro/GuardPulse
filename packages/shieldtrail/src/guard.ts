@@ -3,7 +3,7 @@ import { buildChain, type Chain } from './chain.js';
 import { redact } from './detectors.js';
 import { defaultRules } from './policy.js';
 import { type EventStore, MemoryStore } from './store/memory.js';
-import type { Decision, EventKind, Finding, GuardEvent, Mode, Rule } from './types.js';
+import type { Budget, Decision, EventKind, Finding, GuardEvent, Mode, Rule } from './types.js';
 
 export interface Exporter {
   export(event: GuardEvent): void | Promise<void>;
@@ -20,6 +20,8 @@ export interface GuardOptions {
   allowedDomains?: string[];
   store?: EventStore;
   exporters?: Exporter[];
+  /** Default limits for every task (a task can set its own). */
+  budget?: Budget;
   /** Planted fake secrets (createCanary()); any outbound request or tool call carrying one is blocked. */
   canaries?: string[];
   /** Extra detectors, e.g. `baseline.observe` from the Security Autopilot. */
@@ -40,6 +42,10 @@ export interface TraceOptions {
   task?: string;
   /** Tools this task is expected to use. Globs allowed. Omit to skip the scope check. */
   allowedTools?: string[];
+  /** Domains allowed for this task on top of the global allow-list. */
+  allowedDomains?: string[];
+  /** Limits for this task; overrides the guard's default budget. */
+  budget?: Budget;
   traceId?: string;
 }
 
@@ -82,6 +88,19 @@ export class ShieldTrail {
       observers: options.observers,
       canaries: options.canaries,
     });
+  }
+
+  /** Kill switch: from now on every tool call and outbound request of every agent is blocked. */
+  halt(reason = 'stopped by operator'): void {
+    this.analyzer.halted = reason;
+  }
+
+  resume(): void {
+    this.analyzer.halted = undefined;
+  }
+
+  get halted(): string | undefined {
+    return this.analyzer.halted;
   }
 
   startTrace(opts: TraceOptions): Trace {
@@ -147,8 +166,9 @@ export class Trace {
   private async begin(): Promise<void> {
     if (this.started) return;
     this.started = true;
-    const { task, allowedTools } = this.opts;
-    await this.guard.ingest(this.guard.newEvent(this.traceId, 'task', this.opts.agent, task ?? 'task', { task, allowedTools }));
+    const { task, allowedTools, allowedDomains } = this.opts;
+    const budget = this.opts.budget ?? this.guard.options.budget;
+    await this.guard.ingest(this.guard.newEvent(this.traceId, 'task', this.opts.agent, task ?? 'task', { task, allowedTools, allowedDomains, budget }));
   }
 
   private async gate(event: GuardEvent, raw: RawPayload): Promise<void> {

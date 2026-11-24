@@ -103,6 +103,13 @@ export const defaultRules: Rule[] = [
     recommendation: 'Restrict allowedTools for this task, then turn this rule into a block.',
   },
   {
+    id: 'budget-exceeded',
+    description: 'Task went over its tool-call or time budget',
+    match: { labels: ['over_budget'] },
+    action: 'block',
+    recommendation: 'Look for a retry loop or a hijacked agent in the chain; raise the budget only if the task really needs it.',
+  },
+  {
     id: 'unknown-domain',
     description: 'Request to a domain outside the allow-list',
     match: { kind: 'http', labels: ['egress'] },

@@ -81,6 +81,16 @@ export interface Rule {
   recommendation?: string;
 }
 
+/** Limits for one task: a looping or hijacked agent burns money and calls before anyone notices. */
+export interface Budget {
+  /** Total tool calls in the task. */
+  maxToolCalls?: number;
+  /** Calls of the same tool in the task (retry loops). */
+  maxCallsPerTool?: number;
+  /** Wall-clock time from the start of the task. */
+  maxDurationMs?: number;
+}
+
 export interface PolicyConfig {
   mode: Mode;
   rules: Rule[];
