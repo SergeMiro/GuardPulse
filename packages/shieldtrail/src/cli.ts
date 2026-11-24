@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { replay, type ReplayOptions, shadowReport } from './replay.js';
+import { renderReport } from './report.js';
 import type { GuardEvent } from './types.js';
 
 const USAGE = `shieldtrail — attack chain intelligence for AI agents
@@ -10,8 +11,9 @@ const USAGE = `shieldtrail — attack chain intelligence for AI agents
   shieldtrail replay <events.jsonl> --policy <policy.json> [--json]
       Re-run recorded events through a policy. Exit code 1 when the policy would stop
       traffic that was allowed when it was recorded (use it as a pre-release gate).
-  shieldtrail report <events.jsonl> [--json]
+  shieldtrail report <events.jsonl> [--json] [--html report.html]
       Shadow-mode report: what enforce mode would have blocked, grouped by rule.
+      --html writes a self-contained incident report to share with a security team.
   shieldtrail collector [--port 4319] [--pg <postgres-url>] [--token <secret>] [--allow-origin <url,...>]
       Start the HTTP collector the dashboard reads from. Browser access is limited to the
       hosted dashboard and http://localhost:3000 unless --allow-origin lists other origins.
@@ -47,7 +49,13 @@ export async function runCli(argv: string[], out: (line: string) => void = conso
   }
 
   if (command === 'report' && file) {
-    const report = shadowReport(await readEvents(file));
+    const events = await readEvents(file);
+    const html = flag(argv, '--html');
+    if (html) {
+      await writeFile(html, renderReport(events));
+      out(`HTML report written to ${html}`);
+    }
+    const report = shadowReport(events);
     if (json) out(JSON.stringify(report, null, 2));
     else {
       out(`${report.events} events in ${report.traces} traces, ${report.blocked} blocked`);

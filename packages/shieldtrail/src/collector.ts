@@ -3,6 +3,7 @@ import { buildChain } from './chain.js';
 import { redact } from './detectors.js';
 import { ShieldTrail } from './guard.js';
 import { shadowReport } from './replay.js';
+import { renderReport } from './report.js';
 import { type EventStore, MemoryStore } from './store/memory.js';
 import type { EventKind, GuardEvent } from './types.js';
 
@@ -123,6 +124,10 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
         return send_(200, { ok: true, events: (await store.list()).length, traces: (await store.traces(10_000)).length });
       }
       if (req.method === 'GET' && url.pathname === '/v1/report') return send_(200, shadowReport(await store.list()));
+      if (req.method === 'GET' && url.pathname === '/v1/report.html') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'", ...(origin ? { 'access-control-allow-origin': origin, vary: 'origin' } : {}) });
+        return res.end(renderReport(await store.list()));
+      }
       if (req.method === 'GET' && url.pathname === '/v1/chains') {
         const ids = await store.traces(Number(url.searchParams.get('limit') ?? 50));
         const chains = await Promise.all(ids.map(async (id) => buildChain(await store.list(id))));

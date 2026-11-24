@@ -9,3 +9,4 @@ export * from './autopilot.js';
 export * from './mcp.js';
 export * from './replay.js';
 export * from './exporters.js';
+export * from './report.js';
