@@ -10,41 +10,47 @@ OK          6. Reply to customer
 
 Data that reached the attacker: none`;
 
-const RULES = `import { createCanary, createGuard, defaultRules } from 'shieldtrail';
-
-const canary = createCanary();        // plant it in a .env, a prompt or a test customer row
-
-const guard = createGuard({
-  mode: 'shadow',
-  canaries: [canary],
-  budget: { maxCallsPerTool: 20 },
-  rules: [
+const RULES = `{
+  "mode": "shadow",
+  "allowedDomains": ["api.acme.com"],
+  "budget": { "maxCallsPerTool": 20, "maxCostUsd": 2 },
+  "rules": [
     {
-      id: 'no-external-forward',
-      description: 'Inbox content forwarded outside the company',
-      match: {
-        kind: 'tool_call',
-        target: 'email.send',
-        args: { to: '!*@acme.com' },               // ! = does NOT match
-        after: { kind: 'tool_call', target: 'email.inbox' },
+      "id": "no-external-forward",
+      "description": "Inbox content forwarded outside the company",
+      "match": {
+        "kind": "tool_call",
+        "target": "email.send",
+        "args": { "to": "!*@acme.com" },
+        "after": { "kind": "tool_call", "target": "email.inbox" }
       },
-      action: 'block',
-      mode: 'enforce',                              // this rule blocks, the rest only watches
+      "action": "block",
+      "mode": "enforce"
     },
-    ...defaultRules,
-  ],
+    {
+      "id": "refund-needs-human",
+      "match": { "kind": "tool_call", "target": "payments.refund" },
+      "action": "ask"
+    },
+    "defaults"
+  ]
+}`;
+
+const SNIPPET = `// lib/guard.ts — reads shieldtrail.policy.json, starts the dev panel in development
+import { createGuard } from 'shieldtrail/node';
+export const guard = createGuard({
+  secrets: [{ name: 'STRIPE_KEY', value: process.env.STRIPE_KEY, domains: ['api.stripe.com'] }],
 });
 
-app.post('/admin/stop-agents', () => guard.halt('stopped from the admin panel'));`;
-
-const SNIPPET = `import { createGuard, GuardBlockedError } from 'shieldtrail';
-
-const guard = createGuard({ mode: 'shadow', allowedDomains: ['api.your-app.com'] });
+// where your agent runs
 const trace = guard.startTrace({ agent: 'support-bot', task: 'Answer a ticket', allowedTools: ['tickets.*'] });
-
-await trace.context({ source: fileUrl, text: fileText });          // what the agent reads
+await trace.context({ source: fileUrl, text: fileText });              // what the agent reads
 const rows = await trace.tool('db.query', args, () => db.query(args)); // each tool call
-const res = await trace.fetch(url, { method: 'POST', body });          // each outbound request`;
+await trace.run(() => agent.next());                                    // every fetch inside is checked
+await trace.usage(completion.usage);                                    // tokens, for budgets
+
+// app/layout.tsx — the panel, development only (Next.js: serverExternalPackages: ['shieldtrail'])
+{process.env.NODE_ENV === 'development' && <script src="http://127.0.0.1:4320/panel.js" async />}`;
 
 export async function generateMetadata({ params }: { params: Promise<{ lang: Lang }> }): Promise<Metadata> {
   const { lang } = await params;
@@ -138,6 +144,7 @@ export default async function StartPage({ params }: { params: Promise<{ lang: La
             <div>
               <h2>{s.rules.title}</h2>
               <p>{s.rules.text}</p>
+              <span className="cmd-label">shieldtrail.policy.json</span>
               <div className="cmd">
                 <pre>{RULES}</pre>
               </div>

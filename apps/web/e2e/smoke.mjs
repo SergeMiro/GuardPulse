@@ -47,7 +47,7 @@ try {
   await page.waitForURL(/\/en\/$/);
   check(true, 'root redirects an English browser to /en/');
   check((await page.locator('h1').textContent()).includes('leaking your data'), 'English landing renders');
-  check((await page.locator('.feature').count()) === 8, 'landing lists the 8 protections');
+  check((await page.locator('.feature').count()) === 12, 'landing lists the 12 protections');
   check(await noHScroll(page), 'no horizontal scroll on landing (1280px)');
 
   // theme toggle persists across reloads
@@ -96,7 +96,7 @@ try {
   await page.locator('.chain-row').first().waitFor();
   check((await page.locator('.chain-row').count()) >= 8, 'dashboard lists demo chains for every protection');
   await page.locator('.react-flow__node-event').first().waitFor();
-  for (const [agent, label] of [['mail-bot', 'sequence rule'], ['crawler-bot', 'budget'], ['research-bot', 'tool-output injection']]) {
+  for (const [agent, label] of [['mail-bot', 'sequence rule'], ['crawler-bot', 'budget'], ['research-bot', 'tool-output injection'], ['debug-bot', 'secret sent to the wrong domain']]) {
     await page.locator('.chain-row', { hasText: agent }).click();
     await page.locator('.gp-node.a-would_block').first().waitFor({ timeout: 5000 });
     check(true, `dashboard: ${label} task shows a would-block step`);

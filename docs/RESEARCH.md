@@ -47,3 +47,44 @@ graph, can be matched by any rule, is reproduced by `replay`, and is counted in 
 | A rule language of its own | Plain objects are typed, testable and need no parser; sequence rules cover the flow cases that motivated Invariant's language. |
 | ML-based detectors (Invariant moderation, PII models) | Would add heavy dependencies; the `analyst` hook is where a model can be plugged in. |
 | 74 DLP patterns, 34 injection patterns | We keep a short, high-signal list (with checksums where they exist) to stay fast and low-noise; extending it is a one-line change per pattern. |
+
+---
+
+# Round 2 (24.11.2026): Rust projects, and making it simple to use
+
+Sources read on 24.11.2026 (README and feature docs, not code), all Apache-2.0:
+[nono](https://github.com/nolabs-ai/nono) (agent sandbox from the Sigstore team),
+[agentgateway](https://github.com/agentgateway/agentgateway) (Linux Foundation proxy for LLM, MCP and A2A),
+[MCP Guardian](https://github.com/eqtylab/mcp-guardian) (MCP proxy with live approvals),
+[Cedar](https://github.com/cedar-policy/cedar) (AWS policy language and analyzer),
+[Kingfisher](https://github.com/mongodb/kingfisher) (secret scanner with live validation).
+[HOL Guard](https://github.com/hashgraph-online/hol-guard) (Python) was read for its approval flow.
+
+## Taken, and how it was adapted
+
+| Feature in ShieldTrail | Idea from | Adapted how | API |
+|---|---|---|---|
+| **Secrets bound to domains** | nono phantom tokens / credential injection | nono keeps the real key outside the agent's sandbox. A library lives in the same process as the key, so promising that would be false. What it can do honestly: know the exact value and where it may go, stop it anywhere else, and keep the value out of storage. Same exact-match mechanism as canaries, so no false positives. | `secrets: [{ name, value, domains }]` |
+| **Ask a person** | MCP Guardian approvals, HOL Guard "request approval" | One more rule action instead of a separate system: shadow mode never waits, enforce waits for the dev panel or an `approve` hook, silence = blocked; the answer is part of the recorded decision, and replay treats answered steps as unchanged. | `action: 'ask'`, `approve` |
+| **Token and spend budgets** | agentgateway budget and spend controls | No built-in price table (it would be stale within a month): the app reports usage in the provider's own shape and its own cost. | `trace.usage()`, `maxTokens`, `maxCostUsd` |
+| **Rule check** | Cedar's analyzer (shadowed / unreachable policies) | Cedar proves properties of the policy text. We answer the practical question on recorded traffic with the replay engine: which rules decide, which match but are always pre-empted (and by which rule), which never match. | `shieldtrail check events.jsonl` |
+| **One policy file** | agentgateway / nono profiles | Plain JSON next to package.json, validated with exact error places, `"defaults"` for the built-in rules, `ruleModes` for per-rule switches. The SDK, `check`, `replay` and the panel read and write the same file. | `shieldtrail.policy.json` |
+| **Every request in a task** | proxies see all traffic | A library cannot see sockets, but it can see every `fetch` made inside a task (AsyncLocalStorage), which covers OpenAI, Stripe and most HTTP SDKs in Node 18+. | `trace.run()`, automatic in `trace.tool()` |
+
+## Not taken
+
+| Feature | Why not |
+|---|---|
+| Kernel sandbox, rollback snapshots (nono, sandlock) | Operating-system level, not a library's job. |
+| Tamper-evident / signed audit log (nono) | A hash chain without external signing can be recomputed by whoever can edit the log; worth doing only together with signing and key management. Still on the list. |
+| LLM routing, failover, inference scheduling (agentgateway) | A gateway's job; ShieldTrail sits inside the app next to whatever client you use. |
+| Hundreds of secret rules and live validation (Kingfisher) | Your own keys are covered exactly by bound secrets; a long pattern list adds false alarms. Kingfisher can run as a CI scanner next to ShieldTrail. |
+| A policy language (Cedar) | JSON rules stay typed, testable and need no parser; `check` covers the analysis people actually need. |
+
+## Built around simplicity
+
+- `createGuard()` from `shieldtrail/node` is the whole setup: policy file, `fetch` checks and dev panel.
+- The dev panel is the single place to look while developing: a shield only on pages where an agent
+  acted, approvals, rule switches, kill switch, and the full dashboard one click away.
+- Every new protection is a label or a rule, so it shows in the graph, the report, `check` and `replay`
+  without extra wiring.

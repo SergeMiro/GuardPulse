@@ -115,3 +115,17 @@ Analysis in [RESEARCH.md](RESEARCH.md). Added, each with tests and wired into gr
 replay, report, dashboard and site (EN/FR): sequence rules + argument matching, injection in tool
 output and MCP tool descriptions, canary tokens, task budgets, kill switch, HTML report (CLI,
 collector, dashboard), URL entropy + IBAN detection, per-task allowed domains.
+
+## Iteration 4 (24.11.2026) — Rust projects, one setup, the dev panel
+
+Plan, re-checked before coding against the code and the projects' docs (see docs/RESEARCH.md, round 2):
+
+| # | Step | Tests |
+|---|---|---|
+| 1 | Collector: refuse foreign `Host` headers on a loopback bind (DNS rebinding) | hardening.test.ts |
+| 2 | `shieldtrail.policy.json`: `parsePolicy` with exact error places, `"defaults"`, `shieldtrail/node` `createGuard` / `loadPolicy` / `savePolicy`, live `setPolicy`; `auditRules` + `shieldtrail check` | policy-file.test.ts |
+| 3 | `trace.run()` + global `fetch` wrapper (once per process, survives hot reload), `Request` input; bound secrets (`secret-wrong-domain`, value scrubbed); model APIs as expected destinations | intercept-secrets.test.ts |
+| 4 | `action: 'ask'` (approve hook, panel, timeout, nobody = blocked; replay-stable); `trace.usage()` + `maxTokens` / `maxCostUsd` | ask-usage.test.ts |
+| 5 | Dev panel: server in development only, one per process, new guard takes over the store on reload; `/v1/page`, approvals, rule switches (`ruleModes`), kill switch; panel.js (Shadow DOM, text-only rendering, constructed stylesheet) and the full dashboard with an SVG attack graph | devtools.test.ts, e2e/panel.mjs (local Chrome) |
+| 6 | examples/next-app: the panel in `next dev`, interception inside Next's fetch, an `ask` route | examples/next-app/e2e/panel-next.mjs (local Chrome) |
+| 7 | Site EN/FR (12 features, start guide with the Next example, policy file), README, research notes, independent review | apps/web/e2e/smoke.mjs |

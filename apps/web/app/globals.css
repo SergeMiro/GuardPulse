@@ -302,7 +302,7 @@ footer { border-top: 1px solid var(--border); padding: 40px 0 50px; color: var(-
 .gp-node .labels .l-injection, .gp-node .labels .l-tainted { color: var(--pulse); background: var(--pulse-soft); }
 .gp-node .labels .l-sensitive { color: var(--amber); background: var(--amber-soft); }
 .gp-node .labels .l-egress, .gp-node .labels .l-drift { color: var(--violet); background: var(--violet-soft); }
-.gp-node .labels .l-canary { color: #fff; background: var(--red); }
+.gp-node .labels .l-canary, .gp-node .labels .l-secret_leak { color: #fff; background: var(--red); }
 .gp-node .labels .l-over_budget { color: var(--amber); background: var(--amber-soft); }
 .gp-node .labels .l-unexpected_tool { color: #e8603f; background: rgba(232, 96, 63, 0.12); }
 .gp-node.a-block { border-color: var(--red); box-shadow: 0 0 0 1px var(--red), 0 0 30px -6px var(--red); }
