@@ -1,19 +1,24 @@
+import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { auditRules } from './audit.js';
 import { buildChain } from './chain.js';
 import { redact } from './detectors.js';
 import { ShieldTrail } from './guard.js';
 import { shadowReport } from './replay.js';
 import { renderReport } from './report.js';
 import { type EventStore, MemoryStore } from './store/memory.js';
-import type { EventKind, GuardEvent } from './types.js';
+import type { EventKind, GuardEvent, Mode } from './types.js';
 
 export interface CollectorOptions {
   port?: number;
   /** Default 127.0.0.1: the collector is not meant to face the internet without a token. */
   host?: string;
   store?: EventStore;
-  /** Analyses events that arrive without a decision (raw events from other services); its store is used. */
-  guard?: ShieldTrail;
+  /**
+   * Analyses events that arrive without a decision (raw events from other services); its store is used.
+   * A function is read on every request, so a dev server can swap in the guard of a hot-reloaded module.
+   */
+  guard?: ShieldTrail | (() => ShieldTrail);
   /** When set, every request needs `Authorization: Bearer <token>`. */
   token?: string;
   /** Max request body, default 1 MB. */
@@ -24,7 +29,31 @@ export interface CollectorOptions {
    * and a local `next dev`.
    */
   allowOrigins?: string[];
+  /**
+   * Dev panel mode: serves the panel script and the full dashboard, lets the panel answer 'ask' steps,
+   * switch rule modes and use the kill switch, and accepts any http://localhost:<port> page as origin.
+   * Never turn this on for a collector other people can reach.
+   */
+  devtools?: {
+    /** Persists a rule mode switched in the panel (shieldtrail/node writes shieldtrail.policy.json). */
+    onRuleMode?: (ruleId: string, mode: Mode) => void;
+  };
 }
+
+const PANEL_JS = (() => {
+  try {
+    return readFileSync(new URL('./panel.js', import.meta.url), 'utf8');
+  } catch {
+    return 'console.warn("ShieldTrail: panel.js is missing from the package build")';
+  }
+})();
+
+const DASHBOARD_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ShieldTrail dashboard</title><style>html,body{margin:0;background:#0d0f17}</style></head>
+<body><script src="/panel.js" data-full></script></body></html>`;
+
+const isLoopbackOrigin = (o: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(o);
+const MODE_SET = new Set(['off', 'shadow', 'enforce']);
 
 export const DEFAULT_ORIGINS = ['https://sergemiro.github.io', 'http://localhost:3000', 'http://127.0.0.1:3000'];
 
@@ -91,10 +120,12 @@ function readBody(req: IncomingMessage, max: number): Promise<string> {
 }
 
 export async function startCollector(opts: CollectorOptions = {}): Promise<{ server: Server; url: string; store: EventStore }> {
-  const guard = opts.guard ?? new ShieldTrail({ store: opts.store ?? new MemoryStore() });
-  const store = guard.store;
+  const fixed = typeof opts.guard === 'function' ? undefined : (opts.guard ?? new ShieldTrail({ store: opts.store ?? new MemoryStore() }));
+  const current = (): ShieldTrail => (typeof opts.guard === 'function' ? opts.guard() : fixed!);
+  const dev = opts.devtools;
 
   const origins = opts.allowOrigins ?? DEFAULT_ORIGINS;
+  const originAllowed = (o: string) => origins.includes(o) || (dev !== undefined && isLoopbackOrigin(o));
 
   const send = (res: ServerResponse, status: number, body: unknown, origin?: string) => {
     const headers: Record<string, string> = { 'content-type': 'application/json', vary: 'origin' };
@@ -112,17 +143,76 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
     const origin = req.headers.origin;
     if (!hostAllowed(req.headers.host, opts.host ?? '127.0.0.1')) return send(res, 421, { error: 'host not allowed' });
     // non-browser clients send no Origin; browsers always do on cross-origin calls
-    if (origin && !origins.includes(origin)) return send(res, 403, { error: 'origin not allowed' });
+    if (origin && !originAllowed(origin)) return send(res, 403, { error: 'origin not allowed' });
     const send_ = (status: number, body: unknown) => send(res, status, body, origin);
+    const guard = current();
+    const store = guard.store;
     try {
       if (req.method === 'OPTIONS') return send_(204, undefined);
       if (opts.token && req.headers.authorization !== `Bearer ${opts.token}`) return send_(401, { error: 'unauthorized' });
       const url = new URL(req.url ?? '/', 'http://collector');
 
+      // JSON only: a form or text/plain POST from a web page would skip the CORS preflight
+      const json = async () => {
+        if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) throw Object.assign(new Error('content-type must be application/json'), { status: 415 });
+        return JSON.parse(await readBody(req, opts.maxBody ?? 1_000_000));
+      };
+
+      if (dev && req.method === 'GET' && (url.pathname === '/' || url.pathname === '/panel.js')) {
+        const js = url.pathname === '/panel.js';
+        res.writeHead(200, {
+          'content-type': js ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+          ...(js ? {} : { 'content-security-policy': "default-src 'self'; style-src 'unsafe-inline'; img-src data:" }),
+        });
+        return res.end(js ? PANEL_JS : DASHBOARD_HTML);
+      }
+
+      if (dev && req.method === 'GET' && url.pathname === '/v1/page') {
+        // everything that happened since the page was requested, grouped by task
+        const since = Number(url.searchParams.get('since') ?? 0) || 0;
+        const all = await store.list();
+        const ids = [...new Set(all.filter((e) => e.ts >= since).map((e) => e.traceId))].slice(-50);
+        const chains = ids.map((id) => buildChain(all.filter((e) => e.traceId === id)));
+        const pending = [...guard.pending.values()].map(({ settle, ...p }) => p);
+        return send_(200, { chains, pending, halted: guard.halted ?? null, mode: guard.policy.mode, now: Date.now() });
+      }
+
+      if (dev && req.method === 'POST' && url.pathname.startsWith('/v1/pending/')) {
+        const body = await json();
+        if (typeof body?.approved !== 'boolean') return send_(400, { error: 'approved must be true or false' });
+        const ok = guard.answer(decodeURIComponent(url.pathname.slice('/v1/pending/'.length)), body.approved, 'dev panel');
+        return ok ? send_(200, { ok }) : send_(404, { error: 'no longer pending' });
+      }
+
+      if (dev && req.method === 'GET' && url.pathname === '/v1/policy') {
+        const { mode, rules } = guard.policy;
+        const audit = auditRules(await store.list(), { mode, rules, allowedDomains: guard.policy.allowedDomains });
+        return send_(200, {
+          mode,
+          rules: rules.map((r, i) => ({ id: r.id, description: r.description, action: r.action, mode: r.mode ?? mode, audit: audit[i] })),
+        });
+      }
+
+      if (dev && req.method === 'POST' && url.pathname === '/v1/policy/rule') {
+        const body = await json();
+        if (typeof body?.id !== 'string' || !MODE_SET.has(body.mode)) return send_(400, { error: 'expected { id, mode: off | shadow | enforce }' });
+        const rules = guard.policy.rules;
+        if (!rules.some((r) => r.id === body.id)) return send_(404, { error: 'no such rule' });
+        dev.onRuleMode?.(body.id, body.mode); // persist first: a failure must not leave the panel and the file disagreeing
+        guard.setPolicy({ rules: rules.map((r) => (r.id === body.id ? { ...r, mode: body.mode } : r)) });
+        return send_(200, { ok: true });
+      }
+
+      if (dev && req.method === 'POST' && (url.pathname === '/v1/halt' || url.pathname === '/v1/resume')) {
+        const body = await json();
+        if (url.pathname === '/v1/halt') guard.halt(typeof body?.reason === 'string' && body.reason ? body.reason.slice(0, 200) : 'stopped from the dev panel');
+        else guard.resume();
+        return send_(200, { halted: guard.halted ?? null });
+      }
+
       if (req.method === 'POST' && url.pathname === '/v1/events') {
-        // JSON only: a form or text/plain POST from a web page would skip the CORS preflight
-        if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return send_(415, { error: 'content-type must be application/json' });
-        const parsed = JSON.parse(await readBody(req, opts.maxBody ?? 1_000_000));
+        const parsed = await json();
         const list: unknown[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.events) ? parsed.events : [parsed?.event ?? parsed];
         if (!list.every(validEvent)) return send_(400, { error: 'invalid event shape' });
         for (const e of list) {
@@ -165,5 +255,5 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
   await new Promise<void>((resolve) => server.listen(opts.port ?? 4319, opts.host ?? '127.0.0.1', resolve));
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : opts.port;
-  return { server, url: `http://${opts.host ?? '127.0.0.1'}:${port}`, store };
+  return { server, url: `http://${opts.host ?? '127.0.0.1'}:${port}`, store: current().store };
 }

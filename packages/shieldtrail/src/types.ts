@@ -106,6 +106,11 @@ export interface Policy {
   rules?: Rule[];
   allowedDomains?: string[];
   budget?: Budget;
+  /**
+   * Per-rule mode switches, e.g. `{ "secret-egress": "enforce" }`: block with one rule while the rest
+   * only watch. Works for built-in rules too. The dev panel's observe / block toggle writes here.
+   */
+  ruleModes?: Record<string, Mode>;
 }
 
 /** A real secret and the only domains it may be sent to (e.g. the Stripe key → api.stripe.com). */

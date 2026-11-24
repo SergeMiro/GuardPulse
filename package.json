@@ -16,7 +16,8 @@
     "build:web": "npm run build -w shieldtrail-web",
     "test:web": "node apps/web/e2e/smoke.mjs",
     "deploy:pages": "scripts/deploy-pages.sh",
-    "shieldtrail": "node packages/shieldtrail/dist/cli.js"
+    "shieldtrail": "node packages/shieldtrail/dist/cli.js",
+    "test:panel": "npm run build && node packages/shieldtrail/e2e/panel.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

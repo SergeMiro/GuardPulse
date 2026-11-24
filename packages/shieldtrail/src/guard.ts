@@ -190,7 +190,7 @@ export class ShieldTrail {
   }
 
   /** The policy in force (mode, rules, allowed domains, default budget). */
-  get policy(): Required<Policy> {
+  get policy(): Required<Omit<Policy, 'ruleModes'>> {
     const { policy, allowedDomains } = this.analyzer.options;
     return { mode: policy.mode, rules: policy.rules, allowedDomains, budget: this.options.budget ?? {} };
   }

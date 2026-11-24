@@ -214,5 +214,16 @@ export function parsePolicy(input: unknown): Policy {
     }
     out.rules = rules;
   }
+  if (input.ruleModes !== undefined) {
+    if (!isObj(input.ruleModes)) throw new PolicyError('ruleModes must map rule ids to off, shadow or enforce');
+    const modes = input.ruleModes as Record<string, unknown>;
+    const rules = out.rules ?? defaultRules;
+    for (const [id, mode] of Object.entries(modes)) {
+      if (!MODES.includes(mode as string)) throw new PolicyError(`ruleModes.${id} must be one of ${MODES.join(', ')}`);
+      if (!rules.some((r) => r.id === id)) throw new PolicyError(`ruleModes.${id}: no rule with this id`);
+    }
+    out.ruleModes = modes as Policy['ruleModes'];
+    out.rules = rules.map((r) => (modes[r.id] ? { ...r, mode: modes[r.id] as Rule['mode'] } : r));
+  }
   return out;
 }
