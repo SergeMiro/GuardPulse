@@ -1,6 +1,6 @@
 import { detectInjection, detectSensitive, globMatch, highEntropyParts, hostOf, toText } from './detectors.js';
 import { evaluate, RAW_ARGS, usesSequence } from './policy.js';
-import type { Budget, Finding, GuardEvent, Label, PolicyConfig } from './types.js';
+import type { BoundSecret, Budget, Finding, GuardEvent, Label, PolicyConfig } from './types.js';
 
 interface TraceState {
   allowedTools?: string[];
@@ -25,6 +25,13 @@ export interface AnalyzerOptions {
   observers?: Array<(event: GuardEvent) => Finding[]>;
   /** Planted honeytokens (see createCanary): seeing one in an outbound request or tool call is a leak. */
   canaries?: string[];
+  /** Real secrets with the domains they belong to; sending one anywhere else is a leak. */
+  secrets?: BoundSecret[];
+  /**
+   * Treat the big AI APIs (OpenAI, Anthropic, Gemini…) as expected destinations, default true: an
+   * agent sends what it read to its model on every step, and that is not exfiltration.
+   */
+  aiProviders?: boolean;
   /** Per-trace state kept for at most this many traces (least recently used dropped), default 10 000. */
   maxTraces?: number;
 }
@@ -47,6 +54,13 @@ export interface RawPayload {
    */
   prior?: GuardEvent;
 }
+
+/** Model APIs an agent talks to on every step. */
+export const AI_PROVIDER_DOMAINS = [
+  'api.openai.com', '*.openai.azure.com', 'api.anthropic.com', 'generativelanguage.googleapis.com', '*-aiplatform.googleapis.com',
+  'api.mistral.ai', 'api.groq.com', 'openrouter.ai', 'api.cohere.com', 'api.deepseek.com', 'api.x.ai', 'api.together.xyz',
+  'bedrock-runtime.*.amazonaws.com',
+];
 
 const REDACTED = /\[REDACTED:[a-z_]+\]/;
 const SERIOUS_REDACTED = /\[REDACTED:(?!email)[a-z_]+\]/;
@@ -80,6 +94,17 @@ export class Analyzer {
     this.traces.set(traceId, st);
     if (this.traces.size > (this.options.maxTraces ?? 10_000)) this.traces.delete(this.traces.keys().next().value!);
     return st;
+  }
+
+  private liveSecrets(): Array<BoundSecret & { value: string }> {
+    return (this.options.secrets ?? []).filter((x): x is BoundSecret & { value: string } => typeof x.value === 'string' && x.value.length >= 8);
+  }
+
+  /** Replaces known secret values in text that is about to be stored. */
+  scrub(text: string): string {
+    let out = text;
+    for (const x of this.liveSecrets()) out = out.split(x.value).join(`[REDACTED:${x.name ?? 'secret'}]`);
+    return out;
   }
 
   /** Labels the event, attaches findings and the policy decision. Mutates and returns it. */
@@ -124,9 +149,21 @@ export class Analyzer {
         const url = raw.url ?? event.target;
         const host = hostOf(url);
         event.data.host = host;
-        if (![...this.options.allowedDomains, ...(st.domains ?? [])].some((g) => globMatch(g, host))) {
+        // a secret bound to a domain also declares that domain as a normal destination
+        const allowed = [...this.options.allowedDomains, ...(st.domains ?? []), ...this.liveSecrets().flatMap((x) => x.domains), ...(this.options.aiProviders === false ? [] : AI_PROVIDER_DOMAINS)];
+        if (!allowed.some((g) => globMatch(g, host))) {
           add('egress');
           event.findings.push({ type: 'egress.unknown_domain', severity: 'low', message: `First-party allow-list does not cover ${host}` });
+        }
+        const outgoing = `${url} ${raw.headers ?? ''} ${toText(raw.body)}`;
+        const misplaced = prior
+          ? priorFindings(prior, (t) => t === 'secret.wrong_domain')
+          : this.liveSecrets()
+              .filter((x) => outgoing.includes(x.value) && !x.domains.some((g) => globMatch(g, host)))
+              .map((x): Finding => ({ type: 'secret.wrong_domain', severity: 'critical', message: `Secret ${x.name ?? '(unnamed)'} sent to ${host}; it belongs to ${x.domains.join(', ')}` }));
+        if (misplaced.length) {
+          add('secret_leak');
+          event.findings.push(...misplaced);
         }
         // only where smuggling matters: after an injection or a read of sensitive data
         if (event.labels.includes('egress') && !prior && (st.taintFrom || st.sensitiveFrom.length)) {
@@ -140,7 +177,7 @@ export class Analyzer {
         const hasPayload = (raw.body !== undefined && raw.body !== '') || raw.opaqueBody === true || query !== '';
         const leaked = prior
           ? priorFindings(prior, (t) => t.startsWith('sensitive.'))
-          : [...detectSensitive(raw.body), ...detectSensitive(query)];
+          : [...detectSensitive(this.scrub(toText(raw.body))), ...detectSensitive(this.scrub(query))]; // bound secrets are judged by domain above
         const opaqueAfterSecrets = raw.opaqueBody === true && st.sensitiveFrom.length > 0;
         if (leaked.length || opaqueAfterSecrets || (prior ? prior.labels.includes('sensitive') : REDACTED.test(String(raw.body ?? '') + query))) {
           add('sensitive');

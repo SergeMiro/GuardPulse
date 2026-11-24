@@ -9,7 +9,8 @@ export type Label =
   | 'unexpected_tool' // tool not declared for the task
   | 'drift' // differs from the learned baseline
   | 'canary' // a planted honeytoken is leaving the app
-  | 'over_budget'; // the task exceeded its call or time budget
+  | 'over_budget' // the task exceeded its call or time budget
+  | 'secret_leak'; // a real secret is going to a domain it is not meant for
 
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -97,6 +98,16 @@ export interface Policy {
   rules?: Rule[];
   allowedDomains?: string[];
   budget?: Budget;
+}
+
+/** A real secret and the only domains it may be sent to (e.g. the Stripe key → api.stripe.com). */
+export interface BoundSecret {
+  /** Shown in findings instead of the value, e.g. 'STRIPE_KEY'. */
+  name?: string;
+  /** The secret itself; unset or short values (< 8 chars) are ignored, so a missing env var is harmless. */
+  value: string | undefined;
+  /** Domain globs the secret belongs to. */
+  domains: string[];
 }
 
 export interface PolicyConfig {

@@ -1,9 +1,9 @@
 import { Analyzer, type RawPayload } from './analyzer.js';
 import { buildChain, type Chain } from './chain.js';
-import { redact } from './detectors.js';
+import { redact, toText } from './detectors.js';
 import { defaultRules } from './policy.js';
 import { type EventStore, MemoryStore } from './store/memory.js';
-import type { Budget, Decision, EventKind, Finding, GuardEvent, Mode, Policy, Rule } from './types.js';
+import type { BoundSecret, Budget, Decision, EventKind, Finding, GuardEvent, Mode, Policy, Rule } from './types.js';
 
 export interface Exporter {
   export(event: GuardEvent): void | Promise<void>;
@@ -22,6 +22,11 @@ export interface GuardOptions {
   exporters?: Exporter[];
   /** Default limits for every task (a task can set its own). */
   budget?: Budget;
+  /**
+   * Real secrets and the domains they belong to, e.g. `{ name: 'STRIPE_KEY', value: process.env.STRIPE_KEY, domains: ['api.stripe.com'] }`.
+   * Sending one anywhere else is blocked (rule secret-wrong-domain); the values are never stored.
+   */
+  secrets?: BoundSecret[];
   /** Planted fake secrets (createCanary()); any outbound request or tool call carrying one is blocked. */
   canaries?: string[];
   /** Extra detectors, e.g. `baseline.observe` from the Security Autopilot. */
@@ -80,6 +85,16 @@ function headerText(headers: RequestInit['headers']): string | undefined {
   return parts.join('\n');
 }
 
+/** Set by `shieldtrail/node` (AsyncLocalStorage): which trace the running code belongs to. */
+export interface TraceContext {
+  run<T>(trace: Trace, fn: () => T): T;
+  get(): Trace | undefined;
+}
+let context: TraceContext | undefined;
+export const setTraceContext = (c: TraceContext) => void (context = c);
+/** The trace the running code belongs to (inside trace.run / trace.tool), when shieldtrail/node is loaded. */
+export const currentTrace = (): Trace | undefined => context?.get();
+
 const hex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 
 export class ShieldTrail {
@@ -99,7 +114,13 @@ export class ShieldTrail {
       allowedDomains: options.allowedDomains ?? [],
       observers: options.observers,
       canaries: options.canaries,
+      secrets: options.secrets,
     });
+  }
+
+  /** redact() that also removes the bound secrets' exact values: use it for anything stored. */
+  redact(value: unknown, max?: number, opts?: { keep?: string[] }): string {
+    return redact(this.analyzer.scrub(toText(value)), max, opts);
   }
 
   /** The policy in force (mode, rules, allowed domains, default budget). */
@@ -209,7 +230,7 @@ export class Trace {
   async context(input: { source: string; text: string; untrusted?: boolean }): Promise<GuardEvent> {
     await this.begin();
     const event = this.guard.newEvent(this.traceId, 'context', this.opts.agent, input.source, {
-      text: redact(input.text, 500),
+      text: this.guard.redact(input.text, 500),
       untrusted: input.untrusted ?? true,
     });
     await this.gate(event, { text: input.text });
@@ -217,17 +238,26 @@ export class Trace {
     return event;
   }
 
+  /**
+   * Runs `fn` as part of this task: with `shieldtrail/node`, every fetch inside it (OpenAI, Stripe,
+   * your own APIs) goes through the policy without wrapping each call.
+   */
+  run<T>(fn: () => T): T {
+    if (!context) throw new Error("trace.run() needs createGuard from 'shieldtrail/node' (it uses AsyncLocalStorage)");
+    return context.run(this, fn);
+  }
+
   /** Runs a tool call through the policy; `run` is never called when the call is blocked. */
   async tool<T>(name: string, args: unknown, run: () => T | Promise<T>): Promise<T> {
     await this.begin();
     // e-mail addresses stay readable in arguments so 'args' rules (to: '*@acme.com') replay exactly
-    const event = this.guard.newEvent(this.traceId, 'tool_call', this.opts.agent, name, { args: redact(args, 4000, { keep: ['email'] }) });
+    const event = this.guard.newEvent(this.traceId, 'tool_call', this.opts.agent, name, { args: this.guard.redact(args, 4000, { keep: ['email'] }) });
     await this.gate(event, { args });
     let result: T;
     try {
-      result = await run();
+      result = await (context ? context.run(this, run) : run()); // fetches made by the tool belong to the task
     } catch (err) {
-      event.data.error = redact((err as Error)?.message ?? err, 500);
+      event.data.error = this.guard.redact((err as Error)?.message ?? err, 500);
       await this.guard.record(event);
       throw err;
     }
@@ -235,7 +265,7 @@ export class Trace {
     event.data.doneSeq = this.guard.lastSeq;
     // the tool already ran: analysis problems must never turn its success into a failure
     try {
-      event.data.result = redact(result, 500);
+      event.data.result = this.guard.redact(result, 500);
       this.guard.analyzer.scanResult(event, result);
     } catch (err) {
       this.guard.options.onError?.(err);
@@ -245,21 +275,24 @@ export class Trace {
   }
 
   /** fetch through ShieldTrail; the request never leaves when the policy blocks it. */
-  async fetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
+  async fetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
     await this.begin();
-    const url = String(input);
-    const { text: body, opaque } = bodyText(init.body);
-    const event = this.guard.newEvent(this.traceId, 'http', this.opts.agent, redact(url), {
-      method: (init.method ?? 'GET').toUpperCase(),
-      body: opaque ? '[uninspectable body]' : redact(body, 500),
+    const req = typeof Request !== 'undefined' && input instanceof Request ? input : undefined;
+    const url = req ? req.url : String(input);
+    // a Request's own body is a stream: it cannot be read without consuming it
+    const { text: body, opaque } = init.body === undefined && req?.body ? { text: undefined, opaque: true } : bodyText(init.body);
+    const headers = init.headers ?? req?.headers;
+    const event = this.guard.newEvent(this.traceId, 'http', this.opts.agent, this.guard.redact(url), {
+      method: (init.method ?? req?.method ?? 'GET').toUpperCase(),
+      body: opaque ? '[uninspectable body]' : this.guard.redact(body, 500),
     });
-    await this.gate(event, { body, opaqueBody: opaque, url, headers: headerText(init.headers) });
+    await this.gate(event, { body, opaqueBody: opaque, url, headers: headerText(headers) });
     try {
       const res = await (this.guard.options.fetch ?? globalThis.fetch)(input, init);
       event.data.status = res.status;
       return res;
     } catch (err) {
-      event.data.error = redact((err as Error)?.message ?? err, 500);
+      event.data.error = this.guard.redact((err as Error)?.message ?? err, 500);
       throw err;
     } finally {
       await this.guard.record(event);
@@ -269,7 +302,7 @@ export class Trace {
   async error(err: unknown): Promise<GuardEvent> {
     await this.begin();
     const e = err as Error;
-    const event = this.guard.newEvent(this.traceId, 'error', this.opts.agent, e?.name ?? 'Error', { message: redact(e?.message ?? String(err), 500) });
+    const event = this.guard.newEvent(this.traceId, 'error', this.opts.agent, e?.name ?? 'Error', { message: this.guard.redact(e?.message ?? String(err), 500) });
     return this.guard.ingest(event);
   }
 

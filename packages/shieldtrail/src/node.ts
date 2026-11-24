@@ -1,8 +1,35 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ShieldTrail, type GuardOptions } from './guard.js';
+import { setTraceContext, ShieldTrail, type GuardOptions, type Trace } from './guard.js';
 import { parsePolicy, PolicyError } from './policy.js';
 import type { Policy } from './types.js';
+
+// one store per process, even when a dev server loads this module twice (hot reload)
+const g = globalThis as typeof globalThis & { [k: symbol]: unknown };
+const ALS = Symbol.for('shieldtrail.als');
+const als = (g[ALS] ??= new AsyncLocalStorage<Trace>()) as AsyncLocalStorage<Trace>;
+setTraceContext({ run: (trace, fn) => als.run(trace, fn), get: () => als.getStore() });
+
+const WRAPPED = Symbol.for('shieldtrail.fetch');
+
+/**
+ * Routes global fetch through the current trace: calls made inside trace.run() / trace.tool() are
+ * checked by the policy, every other call passes through untouched. Installed once per process.
+ */
+export function interceptFetch(): void {
+  const current = g.fetch as typeof fetch & { [WRAPPED]?: true };
+  if (current[WRAPPED]) return;
+  const original = current;
+  const wrapped = ((input: string | URL | Request, init?: RequestInit) => {
+    const trace = als.getStore();
+    if (!trace) return original(input, init);
+    // leave the trace context so trace.fetch's own call reaches the real fetch
+    return als.exit(() => trace.fetch(input, init));
+  }) as typeof fetch & { [WRAPPED]?: true };
+  wrapped[WRAPPED] = true;
+  g.fetch = wrapped;
+}
 
 export const POLICY_FILE = 'shieldtrail.policy.json';
 
@@ -32,6 +59,8 @@ export function savePolicy(policy: Policy, path = POLICY_FILE): void {
 export interface NodeGuardOptions extends GuardOptions {
   /** Policy file to read, default `shieldtrail.policy.json` in the working directory; false to skip. */
   policyFile?: string | false;
+  /** Check every fetch made inside trace.run() / trace.tool(), default true. */
+  interceptFetch?: boolean;
 }
 
 /**
@@ -39,7 +68,8 @@ export interface NodeGuardOptions extends GuardOptions {
  * over the file, so the file can hold rules while code holds secrets (canaries, exporters).
  */
 export function createGuard(options: NodeGuardOptions = {}): ShieldTrail {
-  const { policyFile, ...rest } = options;
+  const { policyFile, interceptFetch: intercept = true, ...rest } = options;
+  if (intercept) interceptFetch();
   const file = policyFile === false ? undefined : loadPolicy(policyFile);
   return new ShieldTrail({
     ...rest,

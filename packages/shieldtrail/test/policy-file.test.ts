@@ -101,7 +101,7 @@ describe('auditRules', () => {
 
     const ok: string[] = [];
     expect(await runCli(['check', '--policy', policy], (l) => ok.push(l))).toBe(0);
-    expect(ok[0]).toMatch(/✓ policy is valid: 8 rules/);
+    expect(ok[0]).toMatch(/✓ policy is valid: 9 rules/);
 
     const broken = join(dir, 'broken.json');
     await writeFile(broken, '{"mode":"loud"}');

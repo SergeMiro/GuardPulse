@@ -80,6 +80,13 @@ export function evaluate(event: GuardEvent, config: PolicyConfig, history: Guard
  */
 export const defaultRules: Rule[] = [
   {
+    id: 'secret-wrong-domain',
+    description: 'A secret is being sent to a domain it does not belong to',
+    match: { kind: 'http', labels: ['secret_leak'] },
+    action: 'block',
+    recommendation: 'Find the step that put the secret in the request (prompt injection, logging, a wrong base URL), and rotate the secret if the request was not blocked.',
+  },
+  {
     id: 'exfil-after-injection',
     description: 'Outbound request to an unknown domain from a trace that ingested a prompt injection',
     match: { kind: 'http', labels: ['tainted', 'egress'] },
@@ -132,7 +139,7 @@ export const defaultRules: Rule[] = [
 const MODES = ['off', 'shadow', 'enforce'];
 const RULE_ACTIONS = ['allow', 'alert', 'block'];
 const KINDS = ['task', 'context', 'tool_call', 'http', 'error', 'app'];
-const LABELS = ['untrusted', 'injection', 'sensitive', 'tainted', 'egress', 'unexpected_tool', 'drift', 'canary', 'over_budget'];
+const LABELS = ['untrusted', 'injection', 'sensitive', 'tainted', 'egress', 'unexpected_tool', 'drift', 'canary', 'over_budget', 'secret_leak'];
 const SEVERITY = ['low', 'medium', 'high', 'critical'];
 const MATCH_KEYS = ['kind', 'target', 'labels', 'notLabels', 'args', 'after', 'minSeverity'];
 
