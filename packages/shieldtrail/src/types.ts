@@ -7,7 +7,9 @@ export type Label =
   | 'tainted' // happened after an injection entered the same trace
   | 'egress' // leaves the app towards a domain not on the allow-list
   | 'unexpected_tool' // tool not declared for the task
-  | 'drift'; // differs from the learned baseline
+  | 'drift' // differs from the learned baseline
+  | 'canary' // a planted honeytoken is leaving the app
+  | 'over_budget'; // the task exceeded its call or time budget
 
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -27,6 +29,8 @@ export interface Finding {
 export interface Decision {
   action: Action;
   ruleId?: string;
+  /** For sequence rules: the earlier event that completed the pattern. */
+  causeId?: string;
   reason: string;
   recommendation?: string;
 }
@@ -56,6 +60,13 @@ export interface RuleMatch {
   labels?: Label[];
   /** None of these labels may be present. */
   notLabels?: Label[];
+  /**
+   * Tool arguments, one glob per argument (`*` = anything). Prefix with `!` to require that the
+   * value does NOT match, e.g. `{ to: '!*@acme.com' }` = an address outside acme.com.
+   */
+  args?: Record<string, string>;
+  /** Sequence rule: an earlier event of the same task must match this too (can be nested). */
+  after?: RuleMatch;
   /** Matches when the event carries a finding at or above this severity. */
   minSeverity?: Severity;
 }

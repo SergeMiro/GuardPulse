@@ -1,7 +1,48 @@
 import { globMatch, maxSeverity, severityRank } from './detectors.js';
 import type { Decision, GuardEvent, PolicyConfig, Rule, RuleMatch } from './types.js';
 
+/** Live tool arguments, attached by the analyzer for the duration of one evaluation (never serialised). */
+export const RAW_ARGS = Symbol('shieldtrail.rawArgs');
+
+function argsOf(event: GuardEvent): Record<string, unknown> | undefined {
+  const raw = (event as unknown as Record<symbol, unknown>)[RAW_ARGS] ?? event.data.args;
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+  if (typeof raw !== 'string') return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : undefined;
+  } catch {
+    return undefined; // stored args are truncated past 500 chars
+  }
+}
+
+function argsMatch(patterns: Record<string, string>, event: GuardEvent): boolean {
+  const args = argsOf(event);
+  if (!args) return false;
+  return Object.entries(patterns).every(([key, pattern]) => {
+    const value = args[key];
+    if (value === undefined) return false;
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    return pattern.startsWith('!') ? !globMatch(pattern.slice(1), text) : globMatch(pattern, text);
+  });
+}
+
+/**
+ * Does `event` match? For sequence rules (`after`), `history` holds the earlier events of the same
+ * trace, oldest first; the result then names the earlier event that completed the pattern.
+ */
+export function matchRule(match: RuleMatch, event: GuardEvent, history: GuardEvent[] = []): { ok: boolean; causeId?: string } {
+  if (!matches({ ...match, after: undefined }, event)) return { ok: false };
+  if (!match.after) return { ok: true };
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (matchRule(match.after, history[i], history.slice(0, i)).ok) return { ok: true, causeId: history[i].id };
+  }
+  return { ok: false };
+}
+
 export function matches(match: RuleMatch, event: GuardEvent): boolean {
+  if (match.after) return false; // needs history: use matchRule
+  if (match.args && !argsMatch(match.args, event)) return false;
   if (match.kind && ![match.kind].flat().includes(event.kind)) return false;
   if (match.target && ![match.target].flat().some((g) => globMatch(g, event.target))) return false;
   if (match.labels && !match.labels.every((l) => event.labels.includes(l))) return false;
@@ -14,15 +55,18 @@ export function matches(match: RuleMatch, event: GuardEvent): boolean {
 }
 
 /** First matching rule wins, so put `allow` exceptions before broad `block` rules. */
-export function evaluate(event: GuardEvent, config: PolicyConfig): Decision {
-  const rule = config.rules.find((r) => matches(r.match, event));
+export function evaluate(event: GuardEvent, config: PolicyConfig, history: GuardEvent[] = []): Decision {
+  let causeId: string | undefined;
+  const rule = config.rules.find((r) => {
+    const m = matchRule(r.match, event, history);
+    causeId = m.causeId;
+    return m.ok;
+  });
   if (!rule) return { action: 'allow', reason: 'no rule matched' };
-  const reason = rule.description ?? rule.id;
+  const base = { ruleId: rule.id, reason: rule.description ?? rule.id, recommendation: rule.recommendation, ...(causeId ? { causeId } : {}) };
   const mode = rule.mode ?? config.mode;
-  if (rule.action !== 'block' || mode === 'off') {
-    return { action: rule.action === 'block' ? 'alert' : rule.action, ruleId: rule.id, reason, recommendation: rule.recommendation };
-  }
-  return { action: mode === 'enforce' ? 'block' : 'would_block', ruleId: rule.id, reason, recommendation: rule.recommendation };
+  if (rule.action !== 'block' || mode === 'off') return { action: rule.action === 'block' ? 'alert' : rule.action, ...base };
+  return { action: mode === 'enforce' ? 'block' : 'would_block', ...base };
 }
 
 /** The attack-chain rules ShieldTrail ships with. */

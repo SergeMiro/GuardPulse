@@ -16,8 +16,8 @@ export interface ChainEdge {
   id: string;
   source: string;
   target: string;
-  /** sequence = what happened next; taint = injected instructions flowing on; data = sensitive data flowing out */
-  type: 'sequence' | 'taint' | 'data';
+  /** sequence = what happened next; taint = injected instructions flowing on; data = sensitive data flowing out; rule = the earlier step a sequence rule matched */
+  type: 'sequence' | 'taint' | 'data' | 'rule';
 }
 
 export interface Chain {
@@ -67,9 +67,12 @@ export function buildChain(events: GuardEvent[]): Chain {
   }));
   const edges: ChainEdge[] = [];
   for (const e of sorted) {
-    if (e.parentId && ids.has(e.parentId)) edges.push({ id: `s:${e.parentId}>${e.id}`, source: e.parentId, target: e.id, type: 'sequence' });
+    const cause = e.decision?.causeId;
+    // a sequence-rule edge replaces the plain "what happened next" edge between the same two steps
+    if (e.parentId && ids.has(e.parentId) && e.parentId !== cause) edges.push({ id: `s:${e.parentId}>${e.id}`, source: e.parentId, target: e.id, type: 'sequence' });
     const taint = e.data.taintFrom as string | undefined;
     if (taint && ids.has(taint) && taint !== e.parentId) edges.push({ id: `t:${taint}>${e.id}`, source: taint, target: e.id, type: 'taint' });
+    if (cause && ids.has(cause)) edges.push({ id: `r:${cause}>${e.id}`, source: cause, target: e.id, type: 'rule' });
     for (const src of (e.data.sensitiveFrom as string[] | undefined) ?? []) {
       if (ids.has(src)) edges.push({ id: `d:${src}>${e.id}`, source: src, target: e.id, type: 'data' });
     }

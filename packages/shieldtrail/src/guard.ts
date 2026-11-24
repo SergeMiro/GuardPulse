@@ -172,7 +172,7 @@ export class Trace {
   async tool<T>(name: string, args: unknown, run: () => T | Promise<T>): Promise<T> {
     await this.begin();
     const event = this.guard.newEvent(this.traceId, 'tool_call', this.opts.agent, name, { args: redact(args, 500) });
-    await this.gate(event, {});
+    await this.gate(event, { args });
     let result: T;
     try {
       result = await run();

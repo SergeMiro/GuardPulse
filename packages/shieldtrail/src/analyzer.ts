@@ -1,5 +1,5 @@
 import { detectInjection, detectSensitive, globMatch, hostOf } from './detectors.js';
-import { evaluate } from './policy.js';
+import { evaluate, RAW_ARGS } from './policy.js';
 import type { Finding, GuardEvent, Label, PolicyConfig } from './types.js';
 
 interface TraceState {
@@ -7,6 +7,8 @@ interface TraceState {
   taintFrom?: string;
   sensitiveFrom: string[];
   lastId?: string;
+  /** Earlier events of the trace, for sequence rules (bounded). */
+  history: GuardEvent[];
 }
 
 export interface AnalyzerOptions {
@@ -26,6 +28,8 @@ export interface RawPayload {
   /** True when the request carries a body that cannot be inspected (Blob, stream…). */
   opaqueBody?: boolean;
   url?: string;
+  /** Tool arguments as passed (matched by `args` rules, never stored). */
+  args?: unknown;
   result?: unknown;
   /**
    * Replay: the recorded event. Content findings (injection, secrets, drift) are taken from it
@@ -55,7 +59,7 @@ export class Analyzer {
   private state(traceId: string): TraceState {
     let st = this.traces.get(traceId);
     if (st) this.traces.delete(traceId); // re-insert: Map order doubles as LRU order
-    else st = { sensitiveFrom: [] };
+    else st = { sensitiveFrom: [], history: [] };
     this.traces.set(traceId, st);
     if (this.traces.size > (this.options.maxTraces ?? 10_000)) this.traces.delete(this.traces.keys().next().value!);
     return st;
@@ -140,7 +144,12 @@ export class Analyzer {
       event.findings.push(...drift);
     }
 
-    event.decision = evaluate(event, this.options.policy);
+    const holder = event as unknown as Record<symbol, unknown>;
+    if (raw.args !== undefined) holder[RAW_ARGS] = raw.args;
+    event.decision = evaluate(event, this.options.policy, st.history);
+    delete holder[RAW_ARGS];
+    st.history.push(event);
+    if (st.history.length > 200) st.history.shift();
     // a tool's result arrives after its decision; replay keeps that order so decisions match
     if (event.kind === 'tool_call' && (raw.result !== undefined || prior?.labels.includes('sensitive'))) this.scanResult(event, raw.result, prior);
     return event;
