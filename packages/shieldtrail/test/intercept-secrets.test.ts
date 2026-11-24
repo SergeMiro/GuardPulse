@@ -40,6 +40,16 @@ describe('fetch interception (shieldtrail/node)', () => {
     expect(chain.events.find((e) => e.target === 'https://evil.io/sync')!.data).toMatchObject({ method: 'POST', body: '[uninspectable body]' });
   });
 
+  it('an explicit trace.fetch inside a task is recorded once, not twice', async () => {
+    net.mockClear();
+    const guard = createGuard({ policyFile: false, mode: 'enforce', allowedDomains: ['api.acme.com'] });
+    const trace = guard.startTrace({ agent: 'bot' });
+    await trace.run(() => trace.fetch('https://api.acme.com/a'));
+    await trace.tool('crm.get', {}, () => trace.fetch('https://api.acme.com/b'));
+    expect(net).toHaveBeenCalledTimes(2);
+    expect((await trace.chain()).events.filter((e) => e.kind === 'http').map((e) => e.target)).toEqual(['https://api.acme.com/a', 'https://api.acme.com/b']);
+  });
+
   it('is installed once, even when several guards are created', () => {
     const before = globalThis.fetch;
     createGuard({ policyFile: false });

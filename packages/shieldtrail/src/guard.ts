@@ -103,6 +103,8 @@ function headerText(headers: RequestInit['headers']): string | undefined {
 /** Set by `shieldtrail/node` (AsyncLocalStorage): which trace the running code belongs to. */
 export interface TraceContext {
   run<T>(trace: Trace, fn: () => T): T;
+  /** Runs fn outside any trace (so the fetch wrapper lets the call through). */
+  exit<T>(fn: () => T): T;
   get(): Trace | undefined;
 }
 let context: TraceContext | undefined;
@@ -355,7 +357,9 @@ export class Trace {
     });
     await this.gate(event, { body, opaqueBody: opaque, url, headers: headerText(headers) });
     try {
-      const res = await (this.guard.options.fetch ?? globalThis.fetch)(input, init);
+      const send = () => (this.guard.options.fetch ?? globalThis.fetch)(input, init);
+      // outside the trace context: the global fetch wrapper must not check this call a second time
+      const res = await (context ? context.exit(send) : send());
       event.data.status = res.status;
       return res;
     } catch (err) {

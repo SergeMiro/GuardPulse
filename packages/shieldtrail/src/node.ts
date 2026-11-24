@@ -9,7 +9,7 @@ import type { Mode, Policy } from './types.js';
 const g = globalThis as typeof globalThis & { [k: symbol]: unknown };
 const ALS = Symbol.for('shieldtrail.als');
 const als = (g[ALS] ??= new AsyncLocalStorage<Trace>()) as AsyncLocalStorage<Trace>;
-setTraceContext({ run: (trace, fn) => als.run(trace, fn), get: () => als.getStore() });
+setTraceContext({ run: (trace, fn) => als.run(trace, fn), exit: (fn) => als.exit(fn), get: () => als.getStore() });
 
 const WRAPPED = Symbol.for('shieldtrail.fetch');
 
