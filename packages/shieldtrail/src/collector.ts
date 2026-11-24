@@ -44,7 +44,7 @@ const KINDS = new Set<EventKind>(['task', 'context', 'tool_call', 'http', 'error
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
-const ACTIONS = new Set(['allow', 'alert', 'block', 'would_block']);
+const ACTIONS = new Set(['allow', 'alert', 'block', 'would_block', 'ask']);
 const MAX_TS = 8.64e15; // the largest date JavaScript can represent
 
 function validEvent(e: unknown): e is GuardEvent {

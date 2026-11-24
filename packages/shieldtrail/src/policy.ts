@@ -70,8 +70,10 @@ export function evaluate(event: GuardEvent, config: PolicyConfig, history: Guard
   if (!rule) return { action: 'allow', reason: 'no rule matched' };
   const base = { ruleId: rule.id, reason: rule.description ?? rule.id, recommendation: rule.recommendation, ...(causeId ? { causeId } : {}) };
   const mode = rule.mode ?? config.mode;
-  if (rule.action !== 'block' || mode === 'off') return { action: rule.action === 'block' ? 'alert' : rule.action, ...base };
-  return { action: mode === 'enforce' ? 'block' : 'would_block', ...base };
+  const stopping = rule.action === 'block' || rule.action === 'ask';
+  if (!stopping || mode === 'off') return { action: stopping ? 'alert' : rule.action, ...base };
+  if (mode !== 'enforce') return { action: 'would_block', ...base };
+  return { action: rule.action, ...base };
 }
 
 /**
@@ -137,7 +139,7 @@ export const defaultRules: Rule[] = [
 ];
 
 const MODES = ['off', 'shadow', 'enforce'];
-const RULE_ACTIONS = ['allow', 'alert', 'block'];
+const RULE_ACTIONS = ['allow', 'alert', 'block', 'ask'];
 const KINDS = ['task', 'context', 'tool_call', 'http', 'error', 'app'];
 const LABELS = ['untrusted', 'injection', 'sensitive', 'tainted', 'egress', 'unexpected_tool', 'drift', 'canary', 'over_budget', 'secret_leak'];
 const SEVERITY = ['low', 'medium', 'high', 'critical'];
@@ -187,7 +189,7 @@ export function parsePolicy(input: unknown): Policy {
   if (input.budget !== undefined) {
     if (!isObj(input.budget)) throw new PolicyError('budget must be an object');
     for (const [k, v] of Object.entries(input.budget)) {
-      if (!['maxToolCalls', 'maxCallsPerTool', 'maxDurationMs'].includes(k)) throw new PolicyError(`budget: unknown key "${k}"`);
+      if (!['maxToolCalls', 'maxCallsPerTool', 'maxDurationMs', 'maxTokens', 'maxCostUsd'].includes(k)) throw new PolicyError(`budget: unknown key "${k}"`);
       if (!(typeof v === 'number' && v > 0)) throw new PolicyError(`budget.${k} must be a positive number`);
     }
     out.budget = input.budget as Policy['budget'];

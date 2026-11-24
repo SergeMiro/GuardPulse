@@ -15,6 +15,8 @@ interface TraceState {
   startTs?: number;
   toolCalls: number;
   perTool: Map<string, number>;
+  tokens: number;
+  costUsd: number;
 }
 
 export interface AnalyzerOptions {
@@ -90,7 +92,7 @@ export class Analyzer {
   private state(traceId: string): TraceState {
     let st = this.traces.get(traceId);
     if (st) this.traces.delete(traceId); // re-insert: Map order doubles as LRU order
-    else st = { sensitiveFrom: [], history: [], toolCalls: 0, perTool: new Map() };
+    else st = { sensitiveFrom: [], history: [], toolCalls: 0, perTool: new Map(), tokens: 0, costUsd: 0 };
     this.traces.set(traceId, st);
     if (this.traces.size > (this.options.maxTraces ?? 10_000)) this.traces.delete(this.traces.keys().next().value!);
     return st;
@@ -123,6 +125,15 @@ export class Analyzer {
         st.startTs = event.ts;
         st.toolCalls = 0; // several tasks can share one trace id (one OTel trace)
         st.perTool.clear();
+        st.tokens = 0;
+        st.costUsd = 0;
+        break;
+      case 'app':
+        if (event.target === 'llm.usage') {
+          const n = (k: string) => (typeof event.data[k] === 'number' && Number.isFinite(event.data[k]) ? (event.data[k] as number) : 0);
+          st.tokens += n('inputTokens') + n('outputTokens');
+          st.costUsd += n('costUsd');
+        }
         break;
       case 'context': {
         if (event.data.untrusted !== false) add('untrusted');
@@ -197,7 +208,7 @@ export class Analyzer {
 
     if ((event.kind === 'tool_call' || event.kind === 'http') && st.budget) {
       const over: string[] = [];
-      const { maxToolCalls, maxCallsPerTool, maxDurationMs } = st.budget;
+      const { maxToolCalls, maxCallsPerTool, maxDurationMs, maxTokens, maxCostUsd } = st.budget;
       if (event.kind === 'tool_call') {
         st.toolCalls++;
         const n = (st.perTool.get(event.target) ?? 0) + 1;
@@ -208,6 +219,9 @@ export class Analyzer {
       if (maxDurationMs !== undefined && st.startTs !== undefined && event.ts - st.startTs > maxDurationMs) {
         over.push(`running for ${Math.round((event.ts - st.startTs) / 1000)} s (budget ${Math.round(maxDurationMs / 1000)} s)`);
       }
+      // spend is reported after the model answered: the next action is the one that gets stopped
+      if (maxTokens !== undefined && st.tokens > maxTokens) over.push(`${st.tokens} model tokens (budget ${maxTokens})`);
+      if (maxCostUsd !== undefined && st.costUsd > maxCostUsd) over.push(`$${st.costUsd.toFixed(2)} spent on the model (budget $${maxCostUsd})`);
       if (over.length) {
         add('over_budget');
         event.findings.push({ type: 'budget.exceeded', severity: 'medium', message: `Task over budget: ${over.join('; ')}` });

@@ -10,6 +10,15 @@ export interface Exporter {
 }
 
 /** The slice of `@opentelemetry/api` ShieldTrail reads, so the package does not depend on it. */
+/** A step waiting for a human because a rule said 'ask'. */
+export interface ApprovalRequest {
+  id: string;
+  event: GuardEvent;
+  ruleId?: string;
+  reason: string;
+  since: number;
+}
+
 export interface OtelTraceApi {
   getActiveSpan(): { spanContext(): { traceId: string; spanId: string } } | undefined;
 }
@@ -37,6 +46,12 @@ export interface GuardOptions {
   fetch?: typeof fetch;
   /** Optional LLM (or anything) that writes an incident summary for a chain. */
   analyst?: (chain: Chain) => Promise<string>;
+  /**
+   * Who answers rules with action 'ask' outside the dev panel, e.g. a Slack message with two buttons.
+   * Return true to let the step run. No answer before `approvalTimeoutMs` (default 2 min) = blocked.
+   */
+  approve?: (request: ApprovalRequest) => boolean | { approved: boolean; by?: string } | Promise<boolean | { approved: boolean; by?: string }>;
+  approvalTimeoutMs?: number;
   onEvent?: (event: GuardEvent) => void;
   /** Store/exporter failures land here instead of breaking the app. */
   onError?: (error: unknown) => void;
@@ -101,6 +116,10 @@ export class ShieldTrail {
   readonly analyzer: Analyzer;
   readonly store: EventStore;
   private seq = 0;
+  /** Steps waiting for a human, by event id. */
+  readonly pending = new Map<string, ApprovalRequest & { settle: (approved: boolean, by: string) => void }>();
+  /** True while someone can answer in the dev panel; set by shieldtrail/node. */
+  interactive = false;
 
   /** Sequence number of the most recent event. */
   get lastSeq(): number {
@@ -121,6 +140,53 @@ export class ShieldTrail {
   /** redact() that also removes the bound secrets' exact values: use it for anything stored. */
   redact(value: unknown, max?: number, opts?: { keep?: string[] }): string {
     return redact(this.analyzer.scrub(toText(value)), max, opts);
+  }
+
+  /** Answers a pending 'ask' step (dev panel, admin endpoint). False when it is no longer pending. */
+  answer(id: string, approved: boolean, by = 'operator'): boolean {
+    const p = this.pending.get(id);
+    if (!p) return false;
+    p.settle(approved, by);
+    return true;
+  }
+
+  /** Puts an 'ask' step in front of a human and turns the answer into the final decision. */
+  async requestApproval(event: GuardEvent): Promise<Decision> {
+    const asked = event.decision!;
+    const hook = this.options.approve;
+    const final = (approved: boolean, by: string, why: string): Decision => ({
+      ...asked,
+      action: approved ? 'allow' : 'block',
+      reason: `${asked.reason} — ${why}`,
+      approval: { approved, by, at: Date.now() },
+    });
+    if (!hook && !this.interactive) return final(false, 'nobody', 'needs approval and no approver is set up (pass `approve`, or run the dev panel)');
+    const { approved, by } = await new Promise<{ approved: boolean; by: string }>((resolve) => {
+      let done = false;
+      const settle = (ok: boolean, who: string) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        this.pending.delete(event.id);
+        resolve({ approved: ok, by: who });
+      };
+      const timer = setTimeout(() => settle(false, 'timeout'), this.options.approvalTimeoutMs ?? 120_000);
+      (timer as { unref?: () => void }).unref?.();
+      const request: ApprovalRequest = { id: event.id, event, ruleId: asked.ruleId, reason: asked.reason, since: Date.now() };
+      this.pending.set(event.id, { ...request, settle });
+      if (hook) {
+        Promise.resolve()
+          .then(() => hook(request))
+          .then(
+            (r) => (typeof r === 'boolean' ? settle(r, 'approve hook') : settle(r.approved, r.by ?? 'approve hook')),
+            (err) => {
+              this.options.onError?.(err);
+              settle(false, 'approve hook failed');
+            },
+          );
+      }
+    });
+    return final(approved, by, approved ? `approved by ${by}` : by === 'timeout' ? 'no answer in time' : `denied by ${by}`);
   }
 
   /** The policy in force (mode, rules, allowed domains, default budget). */
@@ -220,6 +286,7 @@ export class Trace {
 
   private async gate(event: GuardEvent, raw: RawPayload): Promise<void> {
     this.guard.analyzer.process(event, raw);
+    if (event.decision?.action === 'ask') event.decision = await this.guard.requestApproval(event);
     if (event.decision?.action === 'block') {
       await this.guard.record(event);
       throw new GuardBlockedError(event.decision, event);
@@ -297,6 +364,27 @@ export class Trace {
     } finally {
       await this.guard.record(event);
     }
+  }
+
+  /**
+   * Model usage after an LLM call, for token and spend budgets. Takes the provider's usage object as
+   * it is: OpenAI (prompt_tokens / completion_tokens), Anthropic (input_tokens / output_tokens) and the
+   * Vercel AI SDK (inputTokens / outputTokens). Cost is yours to pass: prices change too often to ship.
+   */
+  async usage(usage: Record<string, unknown> | undefined, extra: { model?: string; costUsd?: number } = {}): Promise<GuardEvent> {
+    await this.begin();
+    const u = usage ?? {};
+    const num = (...keys: string[]) => {
+      for (const k of keys) if (typeof u[k] === 'number' && Number.isFinite(u[k])) return u[k] as number;
+      return 0;
+    };
+    const data = {
+      model: extra.model ?? (typeof u.model === 'string' ? u.model : undefined),
+      inputTokens: num('input_tokens', 'prompt_tokens', 'inputTokens', 'promptTokens'),
+      outputTokens: num('output_tokens', 'completion_tokens', 'outputTokens', 'completionTokens'),
+      costUsd: extra.costUsd ?? num('costUsd'),
+    };
+    return this.guard.ingest(this.guard.newEvent(this.traceId, 'app', this.opts.agent, 'llm.usage', data));
   }
 
   async error(err: unknown): Promise<GuardEvent> {

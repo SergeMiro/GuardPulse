@@ -14,7 +14,8 @@ export type Label =
 
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 
-export type Action = 'allow' | 'alert' | 'block' | 'would_block';
+/** 'ask' only lives while a human decides; the recorded decision is then allow or block, with `approval`. */
+export type Action = 'allow' | 'alert' | 'block' | 'would_block' | 'ask';
 
 export type Mode = 'off' | 'shadow' | 'enforce';
 
@@ -34,6 +35,8 @@ export interface Decision {
   causeId?: string;
   reason: string;
   recommendation?: string;
+  /** Set when a rule with action 'ask' put the step in front of a human. */
+  approval?: { approved: boolean; by: string; at: number };
 }
 
 export interface GuardEvent {
@@ -76,7 +79,8 @@ export interface Rule {
   id: string;
   description?: string;
   match: RuleMatch;
-  action: 'allow' | 'alert' | 'block';
+  /** 'ask': in enforce mode the step waits for a human (dev panel or your `approve` hook); no answer = blocked. */
+  action: 'allow' | 'alert' | 'block' | 'ask';
   /** Overrides the global mode for this rule, e.g. enforce one rule while the rest stays in shadow. */
   mode?: Mode;
   recommendation?: string;
@@ -90,6 +94,10 @@ export interface Budget {
   maxCallsPerTool?: number;
   /** Wall-clock time from the start of the task. */
   maxDurationMs?: number;
+  /** Model tokens (input + output) reported with trace.usage(). */
+  maxTokens?: number;
+  /** Model spend reported with trace.usage({ ..., costUsd }). */
+  maxCostUsd?: number;
 }
 
 /** What `shieldtrail.policy.json` holds; the SDK, `replay`, `check` and the dashboard read the same file. */

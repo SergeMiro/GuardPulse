@@ -23,13 +23,13 @@ export interface ReplayResult {
   decisions: ReplayDecision[];
   /** Decisions that differ from what was recorded. */
   changed: ReplayDecision[];
-  /** Recorded as allowed/alerted, would now be stopped (block or would_block). */
+  /** Recorded as allowed/alerted, would now be stopped (block, would_block, or wait for a human: ask). */
   newlyStopped: ReplayDecision[];
   /** Recorded as stopped, would now pass. */
   newlyAllowed: ReplayDecision[];
 }
 
-const stops = (a?: Action) => a === 'block' || a === 'would_block';
+const stops = (a?: Action) => a === 'block' || a === 'would_block' || a === 'ask';
 
 /**
  * Re-runs recorded events through a (new) policy from a clean state, so a rule change can be
@@ -53,7 +53,9 @@ export function replay(recorded: GuardEvent[], opts: ReplayOptions = {}): Replay
       pending.push({ event: fresh, prior: old, doneSeq: old.data.doneSeq });
     }
     events.push(fresh);
-    decisions.push({ eventId: old.id, traceId: old.traceId, kind: old.kind, target: old.target, before: old.decision?.action, after: fresh.decision!.action, ruleId: fresh.decision?.ruleId });
+    // a step a human already answered is not a change: the same rule would ask again
+    const after = fresh.decision!.action === 'ask' && old.decision?.approval ? old.decision.action : fresh.decision!.action;
+    decisions.push({ eventId: old.id, traceId: old.traceId, kind: old.kind, target: old.target, before: old.decision?.action, after, ruleId: fresh.decision?.ruleId });
   }
   flush(Number.POSITIVE_INFINITY);
   const changed = decisions.filter((d) => d.before !== d.after);
