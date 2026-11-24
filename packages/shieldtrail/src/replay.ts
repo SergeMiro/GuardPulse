@@ -1,11 +1,14 @@
 import { Analyzer } from './analyzer.js';
 import { defaultRules } from './policy.js';
-import type { Action, GuardEvent, Mode, Rule } from './types.js';
+import type { Action, Budget, GuardEvent, Mode, Rule } from './types.js';
 
 export interface ReplayOptions {
   mode?: Mode;
   rules?: Rule[];
   allowedDomains?: string[];
+  /** Budget to test instead of the one each task recorded. */
+  budget?: Budget;
+  aiProviders?: boolean;
 }
 
 export interface ReplayDecision {
@@ -36,7 +39,7 @@ const stops = (a?: Action) => a === 'block' || a === 'would_block' || a === 'ask
  * checked against real traffic before it ships.
  */
 export function replay(recorded: GuardEvent[], opts: ReplayOptions = {}): ReplayResult {
-  const analyzer = new Analyzer({ policy: { mode: opts.mode ?? 'enforce', rules: opts.rules ?? defaultRules }, allowedDomains: opts.allowedDomains ?? [] });
+  const analyzer = new Analyzer({ policy: { mode: opts.mode ?? 'enforce', rules: opts.rules ?? defaultRules }, allowedDomains: opts.allowedDomains ?? [], aiProviders: opts.aiProviders });
   const events: GuardEvent[] = [];
   const decisions: ReplayDecision[] = [];
   // tool results are scanned where they arrived live: after the steps the tool itself triggered
@@ -48,6 +51,7 @@ export function replay(recorded: GuardEvent[], opts: ReplayOptions = {}): Replay
   for (const old of [...recorded].sort((a, b) => a.seq - b.seq)) {
     flush(old.seq);
     const { taintFrom, sensitiveFrom, host, ...data } = old.data;
+    if (old.kind === 'task' && opts.budget) data.budget = opts.budget;
     const fresh = analyzer.process({ ...old, data, labels: [], findings: [], decision: undefined }, { ...data, prior: old });
     if (old.kind === 'tool_call' && typeof old.data.doneSeq === 'number' && old.labels.some((l) => l === 'sensitive' || l === 'injection')) {
       pending.push({ event: fresh, prior: old, doneSeq: old.data.doneSeq });

@@ -130,6 +130,11 @@ and refuses requests whose `Host` is not a loopback name (DNS rebinding). With N
 `serverExternalPackages: ['shieldtrail']` to `next.config`. A complete app:
 [examples/next-app](examples/next-app).
 
+**Deploying a bundled app** (Next.js `standalone`, Vercel, other serverless): import the policy so
+the bundler ships it — `import policy from './shieldtrail.policy.json'; createGuard({ policy })`.
+A file read from the working directory at run time may be missing there; in production ShieldTrail
+then warns that only the built-in rules run, in shadow mode.
+
 ### MCP
 
 ```ts
@@ -230,7 +235,10 @@ for what was taken, what was not, and why.
 `trace.tool()` goes through the rules: your calls and those of SDKs (OpenAI, Stripe…). Calls outside
 a task pass untouched. Model APIs (OpenAI, Anthropic, Gemini, Mistral…) count as expected
 destinations, so an agent's own model call after reading a poisoned page is not taken for
-exfiltration (`aiProviders: false` turns that off).
+exfiltration (`aiProviders: false` turns that off). Exact hosts only: Azure OpenAI and Bedrock
+endpoints go in `allowedDomains`, because a wildcard would also cover accounts and buckets anyone
+can create. Work started inside a task (a timer, a background request) stays part of that task, so
+a delayed request cannot slip out unchecked.
 
 **Secrets bound to domains** — `secrets: [{ name, value, domains }]`. Sent to its own domain, a
 secret is fine (that domain counts as allowed); sent anywhere else, rule `secret-wrong-domain`

@@ -52,11 +52,13 @@ export async function runCli(argv: string[], out: (line: string) => void = conso
     }
     const events = file && !file.startsWith('--') ? await readEvents(file) : undefined;
     const rules = policy?.rules ?? defaultRules;
+    const unknownModes = Object.keys(policy?.ruleModes ?? {}).filter((id) => !rules.some((r) => r.id === id));
+    if (unknownModes.length) out(`! ruleModes names rules this file does not define: ${unknownModes.join(', ')} (fine if they come from code)`);
     if (!events) {
       out(policy ? `✓ policy is valid: ${rules.length} rules, mode ${policy.mode ?? 'shadow'}` : `No ${flag(argv, '--policy') ?? POLICY_FILE}: the built-in rules apply.`);
       return 0;
     }
-    const stats = auditRules(events, { mode: policy?.mode, rules, allowedDomains: policy?.allowedDomains });
+    const stats = auditRules(events, { mode: policy?.mode, rules, allowedDomains: policy?.allowedDomains, budget: policy?.budget });
     if (json) out(JSON.stringify(stats, null, 2));
     else {
       out(`${rules.length} rules checked against ${events.length} recorded events`);

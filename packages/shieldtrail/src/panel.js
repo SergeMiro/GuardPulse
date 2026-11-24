@@ -198,7 +198,7 @@
   function rules() {
     if (!state.policy) return h('div', { class: 'empty' }, 'Loading rules…');
     return [
-      h('p', { class: 'muted', style: 'margin:0 0 6px' }, 'Watch = record what would be blocked. Block = stop it. Saved to shieldtrail.policy.json.'),
+      h('p', { class: 'muted', style: 'margin:0 0 6px' }, `Watch = record what would be blocked. Block = stop it. ${state.policy.saved ? 'Saved to shieldtrail.policy.json.' : 'Applies until the app restarts (no policy file).'}`),
       state.policy.rules.map((r) => {
         const stops = r.action === 'block' || r.action === 'ask';
         const set = (mode) => async () => {

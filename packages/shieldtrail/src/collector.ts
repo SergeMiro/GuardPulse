@@ -37,6 +37,8 @@ export interface CollectorOptions {
   devtools?: {
     /** Persists a rule mode switched in the panel (shieldtrail/node writes shieldtrail.policy.json). */
     onRuleMode?: (ruleId: string, mode: Mode) => void;
+    /** Every guard of the process: approvals, kill switch and rule switches reach all of them. */
+    guards?: () => ShieldTrail[];
   };
 }
 
@@ -117,7 +119,8 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
   const current = (): ShieldTrail => (typeof opts.guard === 'function' ? opts.guard() : fixed!);
   const dev = opts.devtools;
 
-  const origins = opts.allowOrigins ?? DEFAULT_ORIGINS;
+  // the dev server can approve steps and rewrite the policy: only pages on this machine may call it
+  const origins = opts.allowOrigins ?? (dev ? [] : DEFAULT_ORIGINS);
   const originAllowed = (o: string) => origins.includes(o) || (dev !== undefined && isLoopbackOrigin(o));
 
   const send = (res: ServerResponse, status: number, body: unknown, origin?: string) => {
@@ -140,6 +143,7 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
     const send_ = (status: number, body: unknown) => send(res, status, body, origin);
     const guard = current();
     const store = guard.store;
+    const everyGuard = () => dev?.guards?.() ?? [guard];
     try {
       if (req.method === 'OPTIONS') return send_(204, undefined);
       if (opts.token && req.headers.authorization !== `Bearer ${opts.token}`) return send_(401, { error: 'unauthorized' });
@@ -167,14 +171,16 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
         const all = await store.list();
         const ids = [...new Set(all.filter((e) => e.ts >= since).map((e) => e.traceId))].slice(-50);
         const chains = ids.map((id) => buildChain(all.filter((e) => e.traceId === id)));
-        const pending = [...guard.pending.values()].map(({ settle, ...p }) => p);
-        return send_(200, { chains, pending, halted: guard.halted ?? null, mode: guard.policy.mode, now: Date.now() });
+        const pending = everyGuard().flatMap((x) => [...x.pending.values()].map(({ settle, ...p }) => p));
+        const halted = everyGuard().find((x) => x.halted)?.halted ?? null;
+        return send_(200, { chains, pending, halted, mode: guard.policy.mode, now: Date.now() });
       }
 
       if (dev && req.method === 'POST' && url.pathname.startsWith('/v1/pending/')) {
         const body = await json();
         if (typeof body?.approved !== 'boolean') return send_(400, { error: 'approved must be true or false' });
-        const ok = guard.answer(decodeURIComponent(url.pathname.slice('/v1/pending/'.length)), body.approved, 'dev panel');
+        const id = decodeURIComponent(url.pathname.slice('/v1/pending/'.length));
+        const ok = everyGuard().some((x) => x.answer(id, body.approved, 'dev panel'));
         return ok ? send_(200, { ok }) : send_(404, { error: 'no longer pending' });
       }
 
@@ -183,6 +189,7 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
         const audit = auditRules(await store.list(), { mode, rules, allowedDomains: guard.policy.allowedDomains });
         return send_(200, {
           mode,
+          saved: dev.onRuleMode !== undefined,
           rules: rules.map((r, i) => ({ id: r.id, description: r.description, action: r.action, mode: r.mode ?? mode, audit: audit[i] })),
         });
       }
@@ -190,17 +197,21 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
       if (dev && req.method === 'POST' && url.pathname === '/v1/policy/rule') {
         const body = await json();
         if (typeof body?.id !== 'string' || !MODE_SET.has(body.mode)) return send_(400, { error: 'expected { id, mode: off | shadow | enforce }' });
-        const rules = guard.policy.rules;
-        if (!rules.some((r) => r.id === body.id)) return send_(404, { error: 'no such rule' });
-        dev.onRuleMode?.(body.id, body.mode); // persist first: a failure must not leave the panel and the file disagreeing
-        guard.setPolicy({ rules: rules.map((r) => (r.id === body.id ? { ...r, mode: body.mode } : r)) });
-        return send_(200, { ok: true });
+        const owners = everyGuard().filter((x) => x.policy.rules.some((r) => r.id === body.id));
+        if (!owners.length) return send_(404, { error: 'no such rule' });
+        try {
+          dev.onRuleMode?.(body.id, body.mode); // persist first: a failure must not leave the panel and the file disagreeing
+        } catch (err) {
+          return send_(500, { error: `not saved: ${(err as Error).message}` });
+        }
+        for (const x of owners) x.setPolicy({ rules: x.policy.rules.map((r) => (r.id === body.id ? { ...r, mode: body.mode } : r)) });
+        return send_(200, { ok: true, saved: dev.onRuleMode !== undefined });
       }
 
       if (dev && req.method === 'POST' && (url.pathname === '/v1/halt' || url.pathname === '/v1/resume')) {
         const body = await json();
-        if (url.pathname === '/v1/halt') guard.halt(typeof body?.reason === 'string' && body.reason ? body.reason.slice(0, 200) : 'stopped from the dev panel');
-        else guard.resume();
+        const reason = typeof body?.reason === 'string' && body.reason ? body.reason.slice(0, 200) : 'stopped from the dev panel';
+        for (const x of everyGuard()) (url.pathname === '/v1/halt' ? x.halt(reason) : x.resume());
         return send_(200, { halted: guard.halted ?? null });
       }
 
@@ -245,7 +256,14 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
     }
   });
 
-  await new Promise<void>((resolve) => server.listen(opts.port ?? 4319, opts.host ?? '127.0.0.1', resolve));
+  await new Promise<void>((resolve, reject) => {
+    // without this, a busy port is an uncaught 'error' event that kills the host process
+    server.once('error', reject);
+    server.listen(opts.port ?? 4319, opts.host ?? '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : opts.port;
   return { server, url: `http://${opts.host ?? '127.0.0.1'}:${port}`, store: current().store };

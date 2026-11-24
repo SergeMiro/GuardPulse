@@ -138,6 +138,12 @@ export const defaultRules: Rule[] = [
   },
 ];
 
+/** Sets each rule's mode from a `ruleModes` map (the panel's switches). */
+export function applyRuleModes(rules: Rule[], modes: Policy['ruleModes']): Rule[] {
+  if (!modes) return rules;
+  return rules.map((r) => (modes[r.id] ? { ...r, mode: modes[r.id] } : r));
+}
+
 const MODES = ['off', 'shadow', 'enforce'];
 const RULE_ACTIONS = ['allow', 'alert', 'block', 'ask'];
 const KINDS = ['task', 'context', 'tool_call', 'http', 'error', 'app'];
@@ -217,13 +223,12 @@ export function parsePolicy(input: unknown): Policy {
   if (input.ruleModes !== undefined) {
     if (!isObj(input.ruleModes)) throw new PolicyError('ruleModes must map rule ids to off, shadow or enforce');
     const modes = input.ruleModes as Record<string, unknown>;
-    const rules = out.rules ?? defaultRules;
     for (const [id, mode] of Object.entries(modes)) {
       if (!MODES.includes(mode as string)) throw new PolicyError(`ruleModes.${id} must be one of ${MODES.join(', ')}`);
-      if (!rules.some((r) => r.id === id)) throw new PolicyError(`ruleModes.${id}: no rule with this id`);
     }
+    // ids are not checked here: rules can also come from code (createGuard({ rules })); `check` lists unknown ones
     out.ruleModes = modes as Policy['ruleModes'];
-    out.rules = rules.map((r) => (modes[r.id] ? { ...r, mode: modes[r.id] as Rule['mode'] } : r));
+    if (out.rules) out.rules = applyRuleModes(out.rules, out.ruleModes);
   }
   return out;
 }

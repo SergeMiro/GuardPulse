@@ -11,6 +11,8 @@ interface TraceState {
   history: GuardEvent[];
   /** Extra allowed domains for this task only. */
   domains?: string[];
+  /** Domains of the bound secrets when the task started (recorded, so replay sees them too). */
+  secretDomains?: string[];
   budget?: Budget;
   startTs?: number;
   toolCalls: number;
@@ -57,11 +59,14 @@ export interface RawPayload {
   prior?: GuardEvent;
 }
 
-/** Model APIs an agent talks to on every step. */
+/**
+ * Model APIs an agent talks to on every step. Exact hosts only: a wildcard such as
+ * `*.openai.azure.com` or `bedrock-runtime.*.amazonaws.com` would also cover resources (an Azure
+ * account, an S3 bucket named with dots) that anyone can create. Add yours to allowedDomains.
+ */
 export const AI_PROVIDER_DOMAINS = [
-  'api.openai.com', '*.openai.azure.com', 'api.anthropic.com', 'generativelanguage.googleapis.com', '*-aiplatform.googleapis.com',
-  'api.mistral.ai', 'api.groq.com', 'openrouter.ai', 'api.cohere.com', 'api.deepseek.com', 'api.x.ai', 'api.together.xyz',
-  'bedrock-runtime.*.amazonaws.com',
+  'api.openai.com', 'api.anthropic.com', 'generativelanguage.googleapis.com', 'api.mistral.ai', 'api.groq.com',
+  'openrouter.ai', 'api.cohere.com', 'api.deepseek.com', 'api.x.ai', 'api.together.xyz',
 ];
 
 const REDACTED = /\[REDACTED:[a-z_]+\]/;
@@ -121,6 +126,7 @@ export class Analyzer {
       case 'task':
         st.allowedTools = Array.isArray(event.data.allowedTools) ? (event.data.allowedTools as string[]) : undefined;
         st.domains = Array.isArray(event.data.allowedDomains) ? (event.data.allowedDomains as string[]) : undefined;
+        st.secretDomains = Array.isArray(event.data.secretDomains) ? (event.data.secretDomains as string[]) : undefined;
         st.budget = event.data.budget && typeof event.data.budget === 'object' ? (event.data.budget as Budget) : undefined;
         st.startTs = event.ts;
         st.toolCalls = 0; // several tasks can share one trace id (one OTel trace)
@@ -161,7 +167,13 @@ export class Analyzer {
         const host = hostOf(url);
         event.data.host = host;
         // a secret bound to a domain also declares that domain as a normal destination
-        const allowed = [...this.options.allowedDomains, ...(st.domains ?? []), ...this.liveSecrets().flatMap((x) => x.domains), ...(this.options.aiProviders === false ? [] : AI_PROVIDER_DOMAINS)];
+        const allowed = [
+          ...this.options.allowedDomains,
+          ...(st.domains ?? []),
+          ...(st.secretDomains ?? []),
+          ...this.liveSecrets().flatMap((x) => x.domains),
+          ...(this.options.aiProviders === false ? [] : AI_PROVIDER_DOMAINS),
+        ];
         if (!allowed.some((g) => globMatch(g, host))) {
           add('egress');
           event.findings.push({ type: 'egress.unknown_domain', severity: 'low', message: `First-party allow-list does not cover ${host}` });

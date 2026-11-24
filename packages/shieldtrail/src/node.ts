@@ -2,14 +2,23 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTraceContext, ShieldTrail, type GuardOptions, type Trace } from './guard.js';
-import { parsePolicy, PolicyError } from './policy.js';
+import { applyRuleModes, defaultRules, parsePolicy, PolicyError } from './policy.js';
 import type { Mode, Policy } from './types.js';
 
 // one store per process, even when a dev server loads this module twice (hot reload)
 const g = globalThis as typeof globalThis & { [k: symbol]: unknown };
 const ALS = Symbol.for('shieldtrail.als');
 const als = (g[ALS] ??= new AsyncLocalStorage<Trace>()) as AsyncLocalStorage<Trace>;
-setTraceContext({ run: (trace, fn) => als.run(trace, fn), exit: (fn) => als.exit(fn), get: () => als.getStore() });
+const INTERCEPT = Symbol.for('shieldtrail.intercept');
+setTraceContext({
+  run: (trace, fn) => {
+    // next dev puts its own fetch back after a server-code edit: re-wrap whenever a task starts work
+    if (g[INTERCEPT]) interceptFetch();
+    return als.run(trace, fn);
+  },
+  exit: (fn) => als.exit(fn),
+  get: () => als.getStore(),
+});
 
 const WRAPPED = Symbol.for('shieldtrail.fetch');
 
@@ -70,7 +79,16 @@ export function setRuleMode(ruleId: string, mode: Mode, path?: string): Policy {
 }
 
 export interface NodeGuardOptions extends GuardOptions {
-  /** Policy file to read, default `shieldtrail.policy.json` in the working directory; false to skip. */
+  /**
+   * The policy itself, e.g. `import policy from './shieldtrail.policy.json'`. Use this in bundled or
+   * serverless deployments (Next.js standalone, Vercel): the bundler ships an imported file, while a
+   * file read at run time from the working directory may not be there. Validated like the file.
+   */
+  policy?: unknown;
+  /**
+   * Policy file, default `shieldtrail.policy.json` in the working directory: read when `policy` is
+   * not given, and where the dev panel saves its rule switches. false = neither.
+   */
   policyFile?: string | false;
   /** Check every fetch made inside trace.run() / trace.tool(), default true. */
   interceptFetch?: boolean;
@@ -85,32 +103,45 @@ export interface NodeGuardOptions extends GuardOptions {
 export const DEVTOOLS_PORT = 4320;
 
 interface DevtoolsHolder {
-  guard: ShieldTrail;
+  /** Every guard of the process (one per agent, or a new one after a hot reload); weak, so old ones can go. */
+  refs: Array<WeakRef<ShieldTrail>>;
   url?: string;
   starting?: Promise<void>;
 }
 const DEVTOOLS = Symbol.for('shieldtrail.devtools');
 
+const liveGuards = (h: DevtoolsHolder): ShieldTrail[] => {
+  h.refs = h.refs.filter((r) => r.deref() !== undefined);
+  return h.refs.map((r) => r.deref()!);
+};
+
 /**
- * Starts the dev panel server once per process. A hot-reloaded module creates a new guard: the server
- * then serves that one, and the new guard keeps the previous store so the history survives the reload.
+ * Starts the dev panel server once per process. Every guard created afterwards joins it: the panel
+ * shows the approvals of all of them, the kill switch stops all of them (and the ones created later),
+ * and a guard created after a hot reload keeps the previous store, so the history survives.
  */
 function startDevtools(guard: ShieldTrail, port: number, policyFile: string | false | undefined, onError: (e: unknown) => void): void {
   const holder = g[DEVTOOLS] as DevtoolsHolder | undefined;
   guard.interactive = true;
   if (holder) {
-    holder.guard = guard;
+    const halted = liveGuards(holder).find((x) => x.halted)?.halted;
+    if (halted) guard.halt(halted);
+    holder.refs.push(new WeakRef(guard));
     return;
   }
-  const next: DevtoolsHolder = { guard };
+  const next: DevtoolsHolder = { refs: [new WeakRef(guard)] };
   g[DEVTOOLS] = next;
+  const all = () => liveGuards(next);
   next.starting = import('./collector.js')
     .then(({ startCollector }) =>
       startCollector({
         port,
-        guard: () => next.guard,
-        // policyFile: false = the app keeps its policy in code, so a switch only lasts until restart
-        devtools: { onRuleMode: policyFile === false ? undefined : (id, mode) => void setRuleMode(id, mode, policyFile) },
+        guard: () => all().at(-1) ?? guard,
+        devtools: {
+          guards: all,
+          // policyFile: false = the app keeps its policy in code, so a switch only lasts until restart
+          onRuleMode: policyFile === false ? undefined : (id, mode) => void setRuleMode(id, mode, policyFile),
+        },
       }),
     )
     .then(({ url }) => {
@@ -118,7 +149,10 @@ function startDevtools(guard: ShieldTrail, port: number, policyFile: string | fa
       console.log(`ShieldTrail dev panel: ${url}  (add <script src="${url}/panel.js" async></script> to your layout)`);
     })
     .catch((err) => {
-      // e.g. the port is taken by another dev server: the app keeps running without the panel
+      // e.g. the port is taken by another dev server: the app keeps running without the panel, nobody
+      // can answer 'ask' steps (so they are blocked at once), and the next createGuard tries again
+      for (const x of all()) x.interactive = false;
+      if (g[DEVTOOLS] === next) delete g[DEVTOOLS];
       onError(err);
       console.warn(`ShieldTrail dev panel not started: ${(err as Error).message}`);
     });
@@ -131,20 +165,42 @@ export async function devtoolsUrl(): Promise<string | undefined> {
   return holder?.url;
 }
 
+let warnedNoPolicy = false;
+
 /**
- * createGuard for servers: reads `shieldtrail.policy.json` when present. Options passed in code win
- * over the file, so the file can hold rules while code holds secrets (canaries, exporters).
+ * createGuard for servers: takes the policy from `policy` or `shieldtrail.policy.json`. Options passed
+ * in code win over the policy, so the file can hold rules while code holds secrets (canaries,
+ * exporters); `ruleModes` (the panel's switches) apply to rules from code too.
  */
 export function createGuard(options: NodeGuardOptions = {}): ShieldTrail {
-  const { policyFile, interceptFetch: intercept = true, devtools = process.env.NODE_ENV === 'development', ...rest } = options;
-  if (intercept) interceptFetch();
-  const file = policyFile === false ? undefined : loadPolicy(policyFile);
-  const previous = devtools ? (g[DEVTOOLS] as DevtoolsHolder | undefined)?.guard : undefined;
+  const { policy, policyFile, interceptFetch: intercept = true, devtools = process.env.NODE_ENV === 'development', ...rest } = options;
+  if (intercept) {
+    g[INTERCEPT] = true;
+    interceptFetch();
+  }
+  let file: Policy | undefined;
+  if (policy !== undefined) {
+    try {
+      file = parsePolicy(policy);
+    } catch (err) {
+      throw new PolicyError(`policy option: ${(err as Error).message}`, { cause: err });
+    }
+  } else if (policyFile !== false) file = loadPolicy(policyFile);
+  if (!file && !rest.rules && process.env.NODE_ENV === 'production' && !warnedNoPolicy) {
+    warnedNoPolicy = true;
+    console.warn(
+      `ShieldTrail: no policy found (${resolve(typeof policyFile === 'string' ? policyFile : POLICY_FILE)}) and no rules in code, ` +
+        'so the built-in rules run in shadow mode. In a bundled deployment, import the file and pass it: createGuard({ policy }).',
+    );
+  }
+  const holder = devtools ? (g[DEVTOOLS] as DevtoolsHolder | undefined) : undefined;
+  const previous = holder ? liveGuards(holder).at(-1) : undefined;
+  const ruleSet = rest.rules ?? file?.rules ?? (file?.ruleModes ? defaultRules : undefined);
   const guard = new ShieldTrail({
     ...rest,
     store: rest.store ?? previous?.store,
     mode: rest.mode ?? file?.mode,
-    rules: rest.rules ?? file?.rules,
+    rules: ruleSet && applyRuleModes(ruleSet, file?.ruleModes),
     allowedDomains: rest.allowedDomains ?? file?.allowedDomains,
     budget: rest.budget ?? file?.budget,
   });

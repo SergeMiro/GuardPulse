@@ -36,6 +36,8 @@ export interface GuardOptions {
    * Sending one anywhere else is blocked (rule secret-wrong-domain); the values are never stored.
    */
   secrets?: BoundSecret[];
+  /** Treat the big model APIs (OpenAI, Anthropic, Gemini…) as expected destinations, default true. */
+  aiProviders?: boolean;
   /** Planted fake secrets (createCanary()); any outbound request or tool call carrying one is blocked. */
   canaries?: string[];
   /** Extra detectors, e.g. `baseline.observe` from the Security Autopilot. */
@@ -136,6 +138,7 @@ export class ShieldTrail {
       observers: options.observers,
       canaries: options.canaries,
       secrets: options.secrets,
+      aiProviders: options.aiProviders,
     });
   }
 
@@ -179,15 +182,22 @@ export class ShieldTrail {
       if (hook) {
         Promise.resolve()
           .then(() => hook(request))
-          .then(
-            (r) => (typeof r === 'boolean' ? settle(r, 'approve hook') : settle(r.approved, r.by ?? 'approve hook')),
-            (err) => {
-              this.options.onError?.(err);
-              settle(false, 'approve hook failed');
-            },
-          );
+          .then((r) => {
+            if (typeof r === 'boolean') return settle(r, 'approve hook');
+            if (r && typeof r.approved === 'boolean') return settle(r.approved, r.by ?? 'approve hook');
+            throw new Error('approve hook must return true, false or { approved, by }');
+          })
+          .catch((err) => {
+            this.options.onError?.(err);
+            settle(false, 'approve hook failed');
+          });
       }
     });
+    // the kill switch wins over an answer given while the step was waiting
+    const halted = this.analyzer.halted;
+    if (halted) {
+      return { ...final(false, by, `kill switch: ${halted}`), ruleId: 'kill-switch', reason: `Kill switch: ${halted}`, recommendation: 'Call resume() once the incident is understood.' };
+    }
     return final(approved, by, approved ? `approved by ${by}` : by === 'timeout' ? 'no answer in time' : `denied by ${by}`);
   }
 
@@ -283,7 +293,9 @@ export class Trace {
     this.started = true;
     const { task, allowedTools, allowedDomains } = this.opts;
     const budget = this.opts.budget ?? this.guard.options.budget;
-    await this.guard.ingest(this.guard.newEvent(this.traceId, 'task', this.opts.agent, task ?? 'task', { task, allowedTools, allowedDomains, budget }));
+    const bound = (this.guard.options.secrets ?? []).filter((x) => typeof x.value === 'string' && x.value.length >= 8).flatMap((x) => x.domains);
+    const secretDomains = bound.length ? [...new Set(bound)] : undefined;
+    await this.guard.ingest(this.guard.newEvent(this.traceId, 'task', this.opts.agent, task ?? 'task', { task, allowedTools, allowedDomains, budget, secretDomains }));
   }
 
   private async gate(event: GuardEvent, raw: RawPayload): Promise<void> {
