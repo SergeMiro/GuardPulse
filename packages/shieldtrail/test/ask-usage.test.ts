@@ -89,6 +89,6 @@ describe('token and spend budgets', () => {
     expect((await t2.chain()).events.at(-1)!.findings.map((f) => f.message).join()).toContain('$0.60 spent on the model (budget $0.5)');
 
     // replay sees the same spend from the stored usage events
-    expect(replay(await guard.store.list(), { mode: 'enforce' }).changed).toEqual([]);
+    expect(replay(await guard.store.list(), { mode: 'enforce', allowedDomains: ['api.acme.com'] }).changed).toEqual([]);
   });
 });
