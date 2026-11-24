@@ -146,12 +146,16 @@ Node.js / Next.js app
 
 | Rule | Matches | Action |
 |---|---|---|
+| `canary-leak` | any step carrying a planted canary (`canary`) | block, **even in shadow mode** |
 | `exfil-after-injection` | `http` with `tainted` + `egress` | block |
 | `secret-egress` | `http` with `sensitive` + `egress` | block |
 | `tool-after-injection` | `tool_call` with `tainted` + `unexpected_tool` | alert (turn into block once `allowedTools` is tuned) |
 | `unknown-domain` | `http` with `egress` | alert |
 | `unexpected-tool` | `tool_call` with `unexpected_tool` | alert |
 | `injection-seen` | `context` with `injection` | alert |
+| `budget-exceeded` | step with `over_budget` | block |
+
+The kill switch (`guard.halt()`) sits above all rules and blocks in every mode.
 
 Rules are plain data. First match wins, so put `allow` exceptions first. Any rule can carry its own
 `mode`, which is how you enforce one rule while the rest stays in shadow:
@@ -165,6 +169,52 @@ createGuard({
   ],
 });
 ```
+
+## More protections
+
+Ideas taken from Pipelock and Invariant, re-implemented to feed the same chain, rules, replay and
+report — see [docs/RESEARCH.md](https://github.com/SergeMiro/ShieldTrail/blob/main/docs/RESEARCH.md) for what was taken, what was not, and why.
+
+**Sequence rules** — block step B only if step A happened earlier in the same task; match tool
+arguments with globs (`!` = does not match). The decision names the earlier step and the graph
+draws the link.
+
+```ts
+{
+  id: 'no-external-forward',
+  match: { kind: 'tool_call', target: 'email.send', args: { to: '!*@acme.com' },
+           after: { kind: 'tool_call', target: 'email.inbox' } },
+  action: 'block',
+}
+```
+
+**Injections through tools and MCP** — what a tool returns (web page, e-mail, file) is scanned
+for hidden instructions and taints the rest of the task; `guardMcpClient().listTools()` records a
+poisoned tool description as an injection.
+
+**Canary tokens** — plant a fake key; if it ever leaves through a request or a tool call, it is
+blocked (even to an allowed domain, even in shadow mode).
+
+```ts
+const canary = createCanary();            // put it in .env, a prompt or a test customer row
+const guard = createGuard({ canaries: [canary] });
+```
+
+**Budgets** — stop retry loops and hijacked agents: `budget: { maxToolCalls, maxCallsPerTool, maxDurationMs }`
+on the guard or per task.
+
+**Kill switch** — `guard.halt('incident #42')` blocks every tool call and request of every agent
+until `guard.resume()`. Wire it to an admin button.
+
+**Per-task domains** — `startTrace({ allowedDomains: ['api.stripe.com'] })` widens the allow-list
+for one task only.
+
+**DLP** — secrets (AWS, GitHub, LLM keys, Slack, private keys, JWT), Luhn-valid cards,
+checksum-valid IBANs, e-mails, and random-looking data smuggled in URLs to unknown domains.
+
+**HTML report** — `npm run shieldtrail -- report events.jsonl --html report.html`, the
+collector's `/v1/report.html`, or the dashboard's *Download HTML report* button: one file with
+risk rating, the tasks that need attention, what blocking would stop, findings and a timeline.
 
 ## Shadow first, then enforce
 
@@ -244,6 +294,12 @@ Layout: `packages/shieldtrail` (SDK), `apps/web` (site, demo, dashboard), `examp
   cost of an attack; it does not prove content is safe. Plug an LLM in through the `analyst` hook if
   you want a second opinion on a chain.
 - `MemoryStore` is unbounded and meant for demos and tests. Use `PostgresStore` in production.
+
+## Credits
+
+Several protections are inspired by [Pipelock](https://github.com/pipelab-org/pipelock) and
+[Invariant Guardrails](https://github.com/invariantlabs-ai/invariant) (both Apache-2.0); no code
+was copied. Details in [docs/RESEARCH.md](https://github.com/SergeMiro/ShieldTrail/blob/main/docs/RESEARCH.md).
 
 ## License
 

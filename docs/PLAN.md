@@ -108,3 +108,10 @@ GitHub Actions is not used for gating (account-level billing issue), so the loca
 - Smoke test covers: language redirect, both locales, theme toggle persistence, all three demo
   modes, the start page, phone width, and the dashboard against a live collector.
 
+
+## Iteration 3 (24.11.2026) — ideas from Pipelock and Invariant
+
+Analysis in [RESEARCH.md](RESEARCH.md). Added, each with tests and wired into graph, rules,
+replay, report, dashboard and site (EN/FR): sequence rules + argument matching, injection in tool
+output and MCP tool descriptions, canary tokens, task budgets, kill switch, HTML report (CLI,
+collector, dashboard), URL entropy + IBAN detection, per-task allowed domains.
