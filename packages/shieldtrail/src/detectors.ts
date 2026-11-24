@@ -49,6 +49,19 @@ export function detectInjection(text: string): Finding[] {
   ];
 }
 
+/** IBAN checksum (ISO 13616 mod 97). */
+function ibanValid(raw: string): boolean {
+  const iban = raw.replace(/\s/g, '');
+  if (iban.length < 15 || iban.length > 34) return false;
+  const moved = iban.slice(4) + iban.slice(0, 4);
+  let rem = 0;
+  for (const ch of moved) {
+    const n = ch >= 'A' ? ch.charCodeAt(0) - 55 : Number(ch);
+    rem = Number(`${rem}${n}`) % 97;
+  }
+  return rem === 1;
+}
+
 function luhn(digits: string): boolean {
   let sum = 0;
   for (let i = 0; i < digits.length; i++) {
@@ -72,6 +85,7 @@ const SECRET_PATTERNS: Array<{ id: string; re: RegExp; severity: Severity; check
     severity: 'high',
     check: (m) => luhn(m.replace(/\D/g, '')),
   },
+  { id: 'iban', re: /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b/g, severity: 'high', check: ibanValid },
   // bounded quantifiers: the unbounded form backtracks quadratically on long dotted input
   { id: 'email', re: /\b[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}\b/g, severity: 'medium' },
 ];
@@ -104,6 +118,33 @@ export function detectSensitive(value: unknown): Finding[] {
     });
   }
   return findings;
+}
+
+/** Bits of entropy per character (Shannon). Random tokens sit above ~4.2, words and hex below. */
+export function entropy(text: string): number {
+  const freq = new Map<string, number>();
+  for (const ch of text) freq.set(ch, (freq.get(ch) ?? 0) + 1);
+  let bits = 0;
+  for (const n of freq.values()) bits -= (n / text.length) * Math.log2(n / text.length);
+  return bits;
+}
+
+/** Long random-looking pieces of a URL (query values, path segments): how encoded data is smuggled out. */
+export function highEntropyParts(url: string): string[] {
+  let parts: string[];
+  try {
+    const u = new URL(url, 'http://x');
+    parts = [...u.pathname.split('/'), ...[...u.searchParams.values()]];
+  } catch {
+    return [];
+  }
+  return parts.filter((p) => p.length >= 24 && entropy(p) >= 4.2);
+}
+
+/** A fake secret to plant in env vars, prompts or test data: if it ever leaves the app, something is exfiltrating. */
+export function createCanary(prefix = 'sk-proj-'): string {
+  const abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  return prefix + Array.from(crypto.getRandomValues(new Uint8Array(40)), (b) => abc[b % abc.length]).join('');
 }
 
 export function hostOf(url: string): string {

@@ -72,6 +72,15 @@ export function evaluate(event: GuardEvent, config: PolicyConfig, history: Guard
 /** The attack-chain rules ShieldTrail ships with. */
 export const defaultRules: Rule[] = [
   {
+    id: 'canary-leak',
+    description: 'A planted canary token is leaving the app',
+    match: { labels: ['canary'] },
+    action: 'block',
+    // a canary cannot be a false positive, so it blocks even while the rest runs in shadow mode
+    mode: 'enforce',
+    recommendation: 'Find which step read the canary (it is in the chain), treat the data it sits next to as exposed, and rotate the real secrets stored with it.',
+  },
+  {
     id: 'exfil-after-injection',
     description: 'Outbound request to an unknown domain from a trace that ingested a prompt injection',
     match: { kind: 'http', labels: ['tainted', 'egress'] },

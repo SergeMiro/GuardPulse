@@ -20,6 +20,8 @@ export interface GuardOptions {
   allowedDomains?: string[];
   store?: EventStore;
   exporters?: Exporter[];
+  /** Planted fake secrets (createCanary()); any outbound request or tool call carrying one is blocked. */
+  canaries?: string[];
   /** Extra detectors, e.g. `baseline.observe` from the Security Autopilot. */
   observers?: Array<(event: GuardEvent) => Finding[]>;
   /** Pass `trace` from `@opentelemetry/api` to reuse the active trace id. */
@@ -78,6 +80,7 @@ export class ShieldTrail {
       policy: { mode: options.mode ?? 'shadow', rules: options.rules ?? defaultRules },
       allowedDomains: options.allowedDomains ?? [],
       observers: options.observers,
+      canaries: options.canaries,
     });
   }
 

@@ -1,4 +1,4 @@
-import { detectInjection, detectSensitive, globMatch, hostOf, toText } from './detectors.js';
+import { detectInjection, detectSensitive, globMatch, highEntropyParts, hostOf, toText } from './detectors.js';
 import { evaluate, RAW_ARGS } from './policy.js';
 import type { Finding, GuardEvent, Label, PolicyConfig } from './types.js';
 
@@ -17,6 +17,8 @@ export interface AnalyzerOptions {
   allowedDomains: string[];
   /** Extra detectors run on every event, e.g. the Security Autopilot baseline. */
   observers?: Array<(event: GuardEvent) => Finding[]>;
+  /** Planted honeytokens (see createCanary): seeing one in an outbound request or tool call is a leak. */
+  canaries?: string[];
   /** Per-trace state kept for at most this many traces (least recently used dropped), default 10 000. */
   maxTraces?: number;
 }
@@ -106,6 +108,13 @@ export class Analyzer {
           add('egress');
           event.findings.push({ type: 'egress.unknown_domain', severity: 'low', message: `First-party allow-list does not cover ${host}` });
         }
+        if (event.labels.includes('egress') && !prior) {
+          const encoded = highEntropyParts(url);
+          if (encoded.length) {
+            add('sensitive');
+            event.findings.push({ type: 'sensitive.high_entropy', severity: 'medium', message: `Random-looking data in the URL (${encoded.length} part${encoded.length > 1 ? 's' : ''}), a common way to smuggle data out` });
+          }
+        }
         const query = queryOf(url);
         const hasPayload = (raw.body !== undefined && raw.body !== '') || raw.opaqueBody === true || query !== '';
         const leaked = prior
@@ -125,6 +134,17 @@ export class Analyzer {
           event.findings.push({ type: 'exfil.sensitive_trace', severity: 'high', message: 'Outbound request after the agent read sensitive data' });
         }
         break;
+      }
+    }
+
+    // a planted canary must never leave: check everything going out, even to allowed domains
+    if (event.kind === 'http' || event.kind === 'tool_call') {
+      const canaries = this.options.canaries ?? [];
+      const outgoing = event.kind === 'http' ? `${raw.url ?? event.target} ${toText(raw.body)}` : toText(raw.args);
+      const leaked = prior ? priorFindings(prior, (t) => t === 'canary.leaked') : canaries.some((c) => c && outgoing.includes(c)) ? [{ type: 'canary.leaked', severity: 'critical' as const, message: 'A planted canary token is leaving the app: something is exfiltrating data' }] : [];
+      if (leaked.length) {
+        add('canary');
+        event.findings.push(...leaked);
       }
     }
 
