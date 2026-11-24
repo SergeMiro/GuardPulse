@@ -81,3 +81,32 @@ describe('hardening (review findings)', () => {
     }
   });
 });
+
+describe('collector DNS rebinding', () => {
+  it('a loopback collector refuses foreign Host headers', async () => {
+    const { hostAllowed, startCollector } = await import('../src/collector.js');
+    expect(hostAllowed('127.0.0.1:4319', '127.0.0.1')).toBe(true);
+    expect(hostAllowed('localhost:4319', '127.0.0.1')).toBe(true);
+    expect(hostAllowed('[::1]:4319', '::1')).toBe(true);
+    expect(hostAllowed('evil.example:4319', '127.0.0.1')).toBe(false);
+    expect(hostAllowed('localhost.evil.example', '127.0.0.1')).toBe(false);
+    expect(hostAllowed(undefined, '127.0.0.1')).toBe(false);
+    expect(hostAllowed('evil.example', '0.0.0.0')).toBe(true);
+
+    const { server, url } = await startCollector({ port: 0 });
+    try {
+      const { request } = await import('node:http');
+      const status = await new Promise<number>((resolve, reject) => {
+        const u = new URL(url + '/v1/chains');
+        request({ host: u.hostname, port: u.port, path: u.pathname, headers: { host: 'rebind.evil.example' } }, (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        }).on('error', reject).end();
+      });
+      expect(status).toBe(421);
+      expect((await fetch(url + '/v1/chains')).status).toBe(200);
+    } finally {
+      server.close();
+    }
+  });
+});

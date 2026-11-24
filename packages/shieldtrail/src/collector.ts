@@ -28,6 +28,18 @@ export interface CollectorOptions {
 
 export const DEFAULT_ORIGINS = ['https://sergemiro.github.io', 'http://localhost:3000', 'http://127.0.0.1:3000'];
 
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+/**
+ * DNS rebinding: a web page can point its own domain at 127.0.0.1 and then talk to the collector as
+ * "same origin", skipping CORS. A loopback collector therefore only answers to loopback Host names.
+ */
+export function hostAllowed(hostHeader: string | undefined, boundHost: string): boolean {
+  if (!LOOPBACK.has(boundHost)) return true; // exposed on purpose: the token is the protection
+  if (!hostHeader) return false;
+  const name = hostHeader.startsWith('[') ? hostHeader.slice(0, hostHeader.indexOf(']') + 1) : hostHeader.split(':')[0];
+  return LOOPBACK.has(name.toLowerCase());
+}
+
 const KINDS = new Set<EventKind>(['task', 'context', 'tool_call', 'http', 'error', 'app']);
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -98,6 +110,7 @@ export async function startCollector(opts: CollectorOptions = {}): Promise<{ ser
 
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
+    if (!hostAllowed(req.headers.host, opts.host ?? '127.0.0.1')) return send(res, 421, { error: 'host not allowed' });
     // non-browser clients send no Origin; browsers always do on cross-origin calls
     if (origin && !origins.includes(origin)) return send(res, 403, { error: 'origin not allowed' });
     const send_ = (status: number, body: unknown) => send(res, status, body, origin);
