@@ -10,6 +10,33 @@ OK          6. Reply to customer
 
 Data that reached the attacker: none`;
 
+const RULES = `import { createCanary, createGuard, defaultRules } from 'shieldtrail';
+
+const canary = createCanary();        // plant it in a .env, a prompt or a test customer row
+
+const guard = createGuard({
+  mode: 'shadow',
+  canaries: [canary],
+  budget: { maxCallsPerTool: 20 },
+  rules: [
+    {
+      id: 'no-external-forward',
+      description: 'Inbox content forwarded outside the company',
+      match: {
+        kind: 'tool_call',
+        target: 'email.send',
+        args: { to: '!*@acme.com' },               // ! = does NOT match
+        after: { kind: 'tool_call', target: 'email.inbox' },
+      },
+      action: 'block',
+      mode: 'enforce',                              // this rule blocks, the rest only watches
+    },
+    ...defaultRules,
+  ],
+});
+
+app.post('/admin/stop-agents', () => guard.halt('stopped from the admin panel'));`;
+
 const SNIPPET = `import { createGuard, GuardBlockedError } from 'shieldtrail';
 
 const guard = createGuard({ mode: 'shadow', allowedDomains: ['api.your-app.com'] });
@@ -101,6 +128,24 @@ export default async function StartPage({ params }: { params: Promise<{ lang: La
               {roll.blocks.map((b) => (
                 <Cmd key={b.code} label={b.label} code={b.code} copy={t.copy} copied={t.copied} />
               ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="guide" style={{ paddingTop: 0 }}>
+          <div className="guide-step">
+            <div className="badge">5</div>
+            <div>
+              <h2>{s.rules.title}</h2>
+              <p>{s.rules.text}</p>
+              <div className="cmd">
+                <pre>{RULES}</pre>
+              </div>
+              <ul style={{ margin: '6px 0 0', paddingLeft: 20, color: 'var(--muted)', fontSize: 14 }}>
+                {s.rules.notes.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>

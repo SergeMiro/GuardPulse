@@ -169,6 +169,25 @@ export default async function Home({ params }: { params: Promise<{ lang: Lang }>
 
         <div className="divider" />
 
+        <section id="inside">
+          <div className="container">
+            <div className="eyebrow">{h.insideEyebrow}</div>
+            <h2>{h.insideTitle}</h2>
+            <p className="sub">{h.insideSub}</p>
+            <div className="features">
+              {h.inside.map((f) => (
+                <div key={f.title} className="feature">
+                  <h3>{f.title}</h3>
+                  <p>{f.text}</p>
+                  <code>{f.code}</code>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <div className="divider" />
+
         <section id="run">
           <div className="container">
             <div className="eyebrow">{h.runEyebrow}</div>

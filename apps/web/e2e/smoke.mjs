@@ -47,6 +47,7 @@ try {
   await page.waitForURL(/\/en\/$/);
   check(true, 'root redirects an English browser to /en/');
   check((await page.locator('h1').textContent()).includes('leaking your data'), 'English landing renders');
+  check((await page.locator('.feature').count()) === 8, 'landing lists the 8 protections');
   check(await noHScroll(page), 'no horizontal scroll on landing (1280px)');
 
   // theme toggle persists across reloads
@@ -70,7 +71,7 @@ try {
   check(true, 'language switch goes to the same page in English');
 
   await page.goto(`${base}/en/start/`);
-  check((await page.locator('.guide-step').count()) === 4, 'start page shows the 4 steps');
+  check((await page.locator('.guide-step').count()) === 5, 'start page shows the 5 steps (incl. own rules)');
   check((await page.locator('.copy-btn').count()) >= 8, 'commands have copy buttons');
   await shot(page, 'start-en');
 
@@ -93,8 +94,20 @@ try {
 
   await page.goto(`${base}/en/dashboard/`);
   await page.locator('.chain-row').first().waitFor();
-  check((await page.locator('.chain-row').count()) >= 4, 'dashboard lists demo chains');
+  check((await page.locator('.chain-row').count()) >= 8, 'dashboard lists demo chains for every protection');
   await page.locator('.react-flow__node-event').first().waitFor();
+  for (const [agent, label] of [['mail-bot', 'sequence rule'], ['crawler-bot', 'budget'], ['research-bot', 'tool-output injection']]) {
+    await page.locator('.chain-row', { hasText: agent }).click();
+    await page.locator('.gp-node.a-would_block').first().waitFor({ timeout: 5000 });
+    check(true, `dashboard: ${label} task shows a would-block step`);
+  }
+  await page.locator('.chain-row', { hasText: 'ops-bot' }).click();
+  await page.locator('.gp-node.a-block .labels .l-canary').waitFor({ timeout: 5000 });
+  check(true, 'dashboard: canary leak is blocked even in watch-only mode');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download HTML report' }).click()]);
+  const reportPath = await download.path();
+  const { readFile } = await import('node:fs/promises');
+  check((await readFile(reportPath, 'utf8')).includes('Overall risk'), 'dashboard downloads the HTML report');
   await shot(page, 'dashboard-en');
 
   // dashboard on a live collector, fed by the real SDK
