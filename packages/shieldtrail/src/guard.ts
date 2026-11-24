@@ -73,12 +73,24 @@ function bodyText(body: RequestInit['body']): { text?: string; opaque: boolean }
   return { opaque: true };
 }
 
+function headerText(headers: RequestInit['headers']): string | undefined {
+  if (!headers) return undefined;
+  const parts: string[] = [];
+  new Headers(headers).forEach((value, key) => parts.push(`${key}: ${value}`));
+  return parts.join('\n');
+}
+
 const hex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 
 export class ShieldTrail {
   readonly analyzer: Analyzer;
   readonly store: EventStore;
   private seq = 0;
+
+  /** Sequence number of the most recent event. */
+  get lastSeq(): number {
+    return this.seq;
+  }
 
   constructor(readonly options: GuardOptions = {}) {
     this.store = options.store ?? new MemoryStore();
@@ -194,7 +206,8 @@ export class Trace {
   /** Runs a tool call through the policy; `run` is never called when the call is blocked. */
   async tool<T>(name: string, args: unknown, run: () => T | Promise<T>): Promise<T> {
     await this.begin();
-    const event = this.guard.newEvent(this.traceId, 'tool_call', this.opts.agent, name, { args: redact(args, 500) });
+    // e-mail addresses stay readable in arguments so 'args' rules (to: '*@acme.com') replay exactly
+    const event = this.guard.newEvent(this.traceId, 'tool_call', this.opts.agent, name, { args: redact(args, 4000, { keep: ['email'] }) });
     await this.gate(event, { args });
     let result: T;
     try {
@@ -204,6 +217,8 @@ export class Trace {
       await this.guard.record(event);
       throw err;
     }
+    // events created while the tool ran come before its result: replay scans it at the same point
+    event.data.doneSeq = this.guard.lastSeq;
     // the tool already ran: analysis problems must never turn its success into a failure
     try {
       event.data.result = redact(result, 500);
@@ -224,7 +239,7 @@ export class Trace {
       method: (init.method ?? 'GET').toUpperCase(),
       body: opaque ? '[uninspectable body]' : redact(body, 500),
     });
-    await this.gate(event, { body, opaqueBody: opaque, url });
+    await this.gate(event, { body, opaqueBody: opaque, url, headers: headerText(init.headers) });
     try {
       const res = await (this.guard.options.fetch ?? globalThis.fetch)(input, init);
       event.data.status = res.status;

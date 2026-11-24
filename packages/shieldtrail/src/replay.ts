@@ -39,12 +39,23 @@ export function replay(recorded: GuardEvent[], opts: ReplayOptions = {}): Replay
   const analyzer = new Analyzer({ policy: { mode: opts.mode ?? 'enforce', rules: opts.rules ?? defaultRules }, allowedDomains: opts.allowedDomains ?? [] });
   const events: GuardEvent[] = [];
   const decisions: ReplayDecision[] = [];
+  // tool results are scanned where they arrived live: after the steps the tool itself triggered
+  let pending: Array<{ event: GuardEvent; prior: GuardEvent; doneSeq: number }> = [];
+  const flush = (beforeSeq: number) => {
+    for (const p of pending.filter((x) => x.doneSeq < beforeSeq)) analyzer.scanResult(p.event, undefined, p.prior);
+    pending = pending.filter((x) => x.doneSeq >= beforeSeq);
+  };
   for (const old of [...recorded].sort((a, b) => a.seq - b.seq)) {
+    flush(old.seq);
     const { taintFrom, sensitiveFrom, host, ...data } = old.data;
     const fresh = analyzer.process({ ...old, data, labels: [], findings: [], decision: undefined }, { ...data, prior: old });
+    if (old.kind === 'tool_call' && typeof old.data.doneSeq === 'number' && old.labels.some((l) => l === 'sensitive' || l === 'injection')) {
+      pending.push({ event: fresh, prior: old, doneSeq: old.data.doneSeq });
+    }
     events.push(fresh);
     decisions.push({ eventId: old.id, traceId: old.traceId, kind: old.kind, target: old.target, before: old.decision?.action, after: fresh.decision!.action, ruleId: fresh.decision?.ruleId });
   }
+  flush(Number.POSITIVE_INFINITY);
   const changed = decisions.filter((d) => d.before !== d.after);
   return {
     events,

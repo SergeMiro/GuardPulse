@@ -22,8 +22,10 @@ function argsMatch(patterns: Record<string, string>, event: GuardEvent): boolean
   return Object.entries(patterns).every(([key, pattern]) => {
     const value = args[key];
     if (value === undefined) return false;
-    const text = typeof value === 'string' ? value : JSON.stringify(value);
-    return pattern.startsWith('!') ? !globMatch(pattern.slice(1), text) : globMatch(pattern, text);
+    // arrays (several recipients…): the rule fires if ANY element matches; with '!', if any element falls outside
+    const items = (Array.isArray(value) ? value : [value]).map((v) => (typeof v === 'string' ? v : JSON.stringify(v)));
+    if (items.length === 0) return false;
+    return pattern.startsWith('!') ? items.some((t) => !globMatch(pattern.slice(1), t)) : items.some((t) => globMatch(pattern, t));
   });
 }
 
@@ -31,14 +33,17 @@ function argsMatch(patterns: Record<string, string>, event: GuardEvent): boolean
  * Does `event` match? For sequence rules (`after`), `history` holds the earlier events of the same
  * trace, oldest first; the result then names the earlier event that completed the pattern.
  */
-export function matchRule(match: RuleMatch, event: GuardEvent, history: GuardEvent[] = []): { ok: boolean; causeId?: string } {
+export function matchRule(match: RuleMatch, event: GuardEvent, history: GuardEvent[] = [], end = history.length): { ok: boolean; causeId?: string } {
   if (!matches({ ...match, after: undefined }, event)) return { ok: false };
   if (!match.after) return { ok: true };
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (matchRule(match.after, history[i], history.slice(0, i)).ok) return { ok: true, causeId: history[i].id };
+  for (let i = end - 1; i >= 0; i--) {
+    if (matchRule(match.after, history[i], history, i).ok) return { ok: true, causeId: history[i].id };
   }
   return { ok: false };
 }
+
+/** True when some rule needs the earlier steps of a task (sequence rules). */
+export const usesSequence = (rules: Rule[]) => rules.some((r) => r.match.after !== undefined);
 
 export function matches(match: RuleMatch, event: GuardEvent): boolean {
   if (match.after) return false; // needs history: use matchRule
@@ -70,16 +75,11 @@ export function evaluate(event: GuardEvent, config: PolicyConfig, history: Guard
 }
 
 /** The attack-chain rules ShieldTrail ships with. */
+/**
+ * The attack-chain rules ShieldTrail ships with. Two protections sit above any rule set and block
+ * in every mode: the kill switch and planted canaries ('canary-leak').
+ */
 export const defaultRules: Rule[] = [
-  {
-    id: 'canary-leak',
-    description: 'A planted canary token is leaving the app',
-    match: { labels: ['canary'] },
-    action: 'block',
-    // a canary cannot be a false positive, so it blocks even while the rest runs in shadow mode
-    mode: 'enforce',
-    recommendation: 'Find which step read the canary (it is in the chain), treat the data it sits next to as exposed, and rotate the real secrets stored with it.',
-  },
   {
     id: 'exfil-after-injection',
     description: 'Outbound request to an unknown domain from a trace that ingested a prompt injection',
@@ -95,19 +95,19 @@ export const defaultRules: Rule[] = [
     recommendation: 'Redact the payload before it leaves the app, or add the destination to allowedDomains if it is legitimate.',
   },
   {
+    id: 'budget-exceeded',
+    description: 'Task went over its tool-call or time budget',
+    match: { labels: ['over_budget'] },
+    action: 'block',
+    recommendation: 'Look for a retry loop or a hijacked agent in the chain; raise the budget only if the task really needs it.',
+  },
+  {
     id: 'tool-after-injection',
     description: 'Tool outside the task scope called after a prompt injection',
     match: { kind: 'tool_call', labels: ['tainted', 'unexpected_tool'] },
     // alert by default: allowedTools lists are rarely complete, so blocking here breaks apps; switch to block once tuned
     action: 'alert',
     recommendation: 'Restrict allowedTools for this task, then turn this rule into a block.',
-  },
-  {
-    id: 'budget-exceeded',
-    description: 'Task went over its tool-call or time budget',
-    match: { labels: ['over_budget'] },
-    action: 'block',
-    recommendation: 'Look for a retry loop or a hijacked agent in the chain; raise the budget only if the task really needs it.',
   },
   {
     id: 'unknown-domain',

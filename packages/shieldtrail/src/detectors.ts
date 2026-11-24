@@ -129,16 +129,21 @@ export function entropy(text: string): number {
   return bits;
 }
 
+// pagination cursors, OAuth state and signed-URL parameters are random by design
+const RANDOM_BY_DESIGN = /^(state|nonce|cursor|after|before|page_?token|next_?token|continuation|x-amz-.*|x-goog-.*|signature|sig|se|sp|sv|sr|code_challenge)$/i;
+
 /** Long random-looking pieces of a URL (query values, path segments): how encoded data is smuggled out. */
 export function highEntropyParts(url: string): string[] {
   let parts: string[];
   try {
     const u = new URL(url, 'http://x');
-    parts = [...u.pathname.split('/'), ...[...u.searchParams.values()]];
+    const segments = u.pathname.split('/').filter((p) => !p.includes('.')); // hashed file names (main.3f9a…js)
+    const values = [...u.searchParams].filter(([k]) => !RANDOM_BY_DESIGN.test(k)).map(([, v]) => v);
+    parts = [...segments, ...values];
   } catch {
     return [];
   }
-  return parts.filter((p) => p.length >= 24 && entropy(p) >= 4.2);
+  return parts.filter((p) => p.length >= 32 && entropy(p) >= 4.3);
 }
 
 /** A fake secret to plant in env vars, prompts or test data: if it ever leaves the app, something is exfiltrating. */
@@ -189,9 +194,10 @@ export function maxSeverity(list: Severity[]): Severity | undefined {
 }
 
 /** Replaces secrets with `[REDACTED:type]` and truncates, so stored events never hold the secret. */
-export function redact(value: unknown, max = 2000): string {
+export function redact(value: unknown, max = 2000, opts: { keep?: string[] } = {}): string {
   let text = toText(value);
   for (const { id, re, check } of SECRET_PATTERNS) {
+    if (opts.keep?.includes(id)) continue;
     text = text.replace(re, (m) => (!check || check(m) ? `[REDACTED:${id}]` : m));
   }
   return text.length > max ? `${text.slice(0, max)}…` : text;

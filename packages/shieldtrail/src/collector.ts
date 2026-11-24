@@ -31,17 +31,21 @@ export const DEFAULT_ORIGINS = ['https://sergemiro.github.io', 'http://localhost
 const KINDS = new Set<EventKind>(['task', 'context', 'tool_call', 'http', 'error', 'app']);
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
+const ACTIONS = new Set(['allow', 'alert', 'block', 'would_block']);
+const MAX_TS = 8.64e15; // the largest date JavaScript can represent
 
 function validEvent(e: unknown): e is GuardEvent {
   const v = e as GuardEvent;
   return (
     isObject(v) &&
     typeof v.id === 'string' && typeof v.traceId === 'string' && typeof v.target === 'string' &&
-    typeof v.actor === 'string' && KINDS.has(v.kind) && typeof v.ts === 'number' && typeof v.seq === 'number' &&
+    typeof v.actor === 'string' && KINDS.has(v.kind) &&
+    Number.isFinite(v.ts) && v.ts >= 0 && v.ts < MAX_TS && Number.isFinite(v.seq) &&
     (v.data === undefined || isObject(v.data)) &&
     (v.labels === undefined || (Array.isArray(v.labels) && v.labels.every((l) => typeof l === 'string'))) &&
-    (v.findings === undefined || (Array.isArray(v.findings) && v.findings.every(isObject))) &&
-    (v.decision === undefined || (isObject(v.decision) && typeof v.decision.action === 'string'))
+    (v.findings === undefined || (Array.isArray(v.findings) && v.findings.every((f) => isObject(f) && typeof f.type === 'string' && SEVERITIES.has(f.severity as string)))) &&
+    (v.decision === undefined || (isObject(v.decision) && ACTIONS.has(v.decision.action as string)))
   );
 }
 

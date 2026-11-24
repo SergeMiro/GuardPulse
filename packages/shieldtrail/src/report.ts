@@ -7,6 +7,10 @@ const esc = (v: unknown) =>
   String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 const COLOR: Record<Severity, string> = { low: '#0f7f52', medium: '#a35f00', high: '#d2491f', critical: '#cf2631' };
+const colorOf = (s: string) => COLOR[s as Severity] ?? '#6a6a85';
+/** Dates that cannot crash the report, whatever was stored. */
+const validTs = (ts: number) => Number.isFinite(ts) && Math.abs(ts) < 8.64e15;
+const iso = (ts: number) => (validTs(ts) ? new Date(ts).toISOString() : 'unknown time');
 
 /**
  * A self-contained HTML incident report (no scripts, no external assets) to send to a security
@@ -25,14 +29,14 @@ export function renderReport(events: GuardEvent[], opts: { title?: string; gener
   const generated = (opts.generatedAt ?? new Date()).toISOString().replace('T', ' ').slice(0, 16);
   const title = opts.title ?? 'ShieldTrail incident report';
 
-  const verdict = (c: Chain) => (c.blocked ? 'BLOCKED' : c.wouldBlock ? 'WOULD BLOCK' : c.severity.toUpperCase());
+  const verdict = (c: Chain) => esc(c.blocked ? 'BLOCKED' : c.wouldBlock ? 'WOULD BLOCK' : String(c.severity).toUpperCase());
   const chainHtml = notable
     .slice(0, 50)
     .map((c) => {
       const stopped = c.events.find((e) => e.decision?.action === 'block' || e.decision?.action === 'would_block');
       return `<section class="chain">
-  <h3><span class="sev" style="background:${COLOR[c.severity]}">${verdict(c)}</span> ${esc(c.actor)} — ${esc(c.task ?? 'task')}</h3>
-  <p class="muted">trace ${esc(c.traceId)} · ${new Date(c.startedAt).toISOString()} · ${c.events.length} steps</p>
+  <h3><span class="sev" style="background:${colorOf(c.severity)}">${verdict(c)}</span> ${esc(c.actor)} — ${esc(c.task ?? 'task')}</h3>
+  <p class="muted">trace ${esc(c.traceId)} · ${iso(c.startedAt)} · ${c.events.length} steps</p>
   <ol>${c.narrative.map((l) => `<li>${esc(l)}</li>`).join('')}</ol>
   ${stopped?.decision?.recommendation ? `<p><b>Advice:</b> ${esc(stopped.decision.recommendation)}</p>` : ''}
 </section>`;
@@ -46,7 +50,7 @@ export function renderReport(events: GuardEvent[], opts: { title?: string; gener
     .sort((a, b) => a.ts - b.ts || a.seq - b.seq)
     .filter((e) => e.decision?.action !== 'allow' || e.findings.length)
     .slice(-300)
-    .map((e) => `<tr><td>${new Date(e.ts).toISOString().slice(11, 19)}</td><td>${esc(e.actor)}</td><td>${esc(e.kind)}</td><td class="mono">${esc(e.target)}</td><td>${esc(e.decision?.action ?? '')}</td><td>${esc(e.decision?.ruleId ?? '')}</td></tr>`)
+    .map((e) => `<tr><td>${validTs(e.ts) ? iso(e.ts).slice(11, 19) : 'unknown time'}</td><td>${esc(e.actor)}</td><td>${esc(e.kind)}</td><td class="mono">${esc(e.target)}</td><td>${esc(e.decision?.action ?? '')}</td><td>${esc(e.decision?.ruleId ?? '')}</td></tr>`)
     .join('');
 
   return `<!doctype html>
@@ -64,7 +68,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 </style></head><body>
 <h1>${esc(title)}</h1>
 <p class="muted">Generated ${esc(generated)} UTC by ShieldTrail · ${events.length} events</p>
-<p>Overall risk: <span class="sev" style="background:${COLOR[risk]}">${risk.toUpperCase()}</span></p>
+<p>Overall risk: <span class="sev" style="background:${colorOf(risk)}">${esc(String(risk).toUpperCase())}</span></p>
 <div class="kpis">
 <div class="kpi"><span class="muted">Agent tasks</span><b>${chains.length}</b></div>
 <div class="kpi"><span class="muted">Blocked</span><b>${chains.filter((c) => c.blocked).length}</b></div>

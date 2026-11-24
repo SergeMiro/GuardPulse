@@ -1,5 +1,5 @@
 import { detectInjection, detectSensitive, globMatch, highEntropyParts, hostOf, toText } from './detectors.js';
-import { evaluate, RAW_ARGS } from './policy.js';
+import { evaluate, RAW_ARGS, usesSequence } from './policy.js';
 import type { Budget, Finding, GuardEvent, Label, PolicyConfig } from './types.js';
 
 interface TraceState {
@@ -35,6 +35,8 @@ export interface RawPayload {
   body?: unknown;
   /** True when the request carries a body that cannot be inspected (Blob, stream…). */
   opaqueBody?: boolean;
+  /** Request headers as text: only checked for canaries, never stored. */
+  headers?: string;
   url?: string;
   /** Tool arguments as passed (matched by `args` rules, never stored). */
   args?: unknown;
@@ -64,7 +66,12 @@ export class Analyzer {
   /** Kill switch: when set, every tool call and outbound request is blocked, whatever the mode. */
   halted?: string;
 
-  constructor(readonly options: AnalyzerOptions) {}
+  /** History is only kept when some rule needs it. */
+  private readonly keepHistory: boolean;
+
+  constructor(readonly options: AnalyzerOptions) {
+    this.keepHistory = usesSequence(options.policy.rules);
+  }
 
   private state(traceId: string): TraceState {
     let st = this.traces.get(traceId);
@@ -89,6 +96,8 @@ export class Analyzer {
         st.domains = Array.isArray(event.data.allowedDomains) ? (event.data.allowedDomains as string[]) : undefined;
         st.budget = event.data.budget && typeof event.data.budget === 'object' ? (event.data.budget as Budget) : undefined;
         st.startTs = event.ts;
+        st.toolCalls = 0; // several tasks can share one trace id (one OTel trace)
+        st.perTool.clear();
         break;
       case 'context': {
         if (event.data.untrusted !== false) add('untrusted');
@@ -119,7 +128,8 @@ export class Analyzer {
           add('egress');
           event.findings.push({ type: 'egress.unknown_domain', severity: 'low', message: `First-party allow-list does not cover ${host}` });
         }
-        if (event.labels.includes('egress') && !prior) {
+        // only where smuggling matters: after an injection or a read of sensitive data
+        if (event.labels.includes('egress') && !prior && (st.taintFrom || st.sensitiveFrom.length)) {
           const encoded = highEntropyParts(url);
           if (encoded.length) {
             add('sensitive');
@@ -170,7 +180,7 @@ export class Analyzer {
     // a planted canary must never leave: check everything going out, even to allowed domains
     if (event.kind === 'http' || event.kind === 'tool_call') {
       const canaries = this.options.canaries ?? [];
-      const outgoing = event.kind === 'http' ? `${raw.url ?? event.target} ${toText(raw.body)}` : toText(raw.args);
+      const outgoing = event.kind === 'http' ? `${raw.url ?? event.target} ${raw.headers ?? ''} ${toText(raw.body)}` : toText(raw.args);
       const leaked = prior ? priorFindings(prior, (t) => t === 'canary.leaked') : canaries.some((c) => c && outgoing.includes(c)) ? [{ type: 'canary.leaked', severity: 'critical' as const, message: 'A planted canary token is leaving the app: something is exfiltrating data' }] : [];
       if (leaked.length) {
         add('canary');
@@ -198,16 +208,32 @@ export class Analyzer {
     if (raw.args !== undefined) holder[RAW_ARGS] = raw.args;
     event.decision = evaluate(event, this.options.policy, st.history);
     delete holder[RAW_ARGS];
+    // a canary cannot be a false positive: it blocks in every mode, whatever the rules say
+    if (event.labels.includes('canary') && event.decision.action !== 'block') {
+      event.decision = {
+        action: 'block',
+        ruleId: 'canary-leak',
+        reason: 'A planted canary token is leaving the app',
+        recommendation: 'Find which step read the canary (it is in the chain), treat the data next to it as exposed, and rotate the real secrets stored with it.',
+      };
+    }
     const halted = prior ? (prior.data.halted as string | undefined) : this.halted;
     if (halted && (event.kind === 'tool_call' || event.kind === 'http')) {
       event.data.halted = halted;
       event.findings.push({ type: 'kill_switch', severity: 'high', message: `Kill switch is on: ${halted}` });
       event.decision = { action: 'block', ruleId: 'kill-switch', reason: `Kill switch: ${halted}`, recommendation: 'Call resume() once the incident is understood.' };
     }
-    st.history.push(event);
-    if (st.history.length > 200) st.history.shift();
+    if (this.keepHistory) {
+      // slim copy: labels/findings are shared (a tool's result can still label it), raw args kept in memory only
+      const slim = { id: event.id, seq: event.seq, ts: event.ts, traceId: event.traceId, kind: event.kind, actor: event.actor, target: event.target, data: { args: event.data.args }, labels: event.labels, findings: event.findings } as GuardEvent;
+      if (raw.args !== undefined) (slim as unknown as Record<symbol, unknown>)[RAW_ARGS] = raw.args;
+      st.history.push(slim);
+      if (st.history.length > 100) st.history.shift();
+    }
     // a tool's result arrives after its decision; replay keeps that order so decisions match
-    if (event.kind === 'tool_call' && (raw.result !== undefined || prior?.labels.some((l) => l === 'sensitive' || l === 'injection'))) {
+    // replay with a recorded completion point: the replayer scans the result at that point instead
+    const deferred = prior !== undefined && typeof prior.data.doneSeq === 'number';
+    if (event.kind === 'tool_call' && !deferred && (raw.result !== undefined || prior?.labels.some((l) => l === 'sensitive' || l === 'injection'))) {
       this.scanResult(event, raw.result, prior);
     }
     return event;

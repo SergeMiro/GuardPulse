@@ -146,7 +146,6 @@ Node.js / Next.js app
 
 | Rule | Matches | Action |
 |---|---|---|
-| `canary-leak` | any step carrying a planted canary (`canary`) | block, **even in shadow mode** |
 | `exfil-after-injection` | `http` with `tainted` + `egress` | block |
 | `secret-egress` | `http` with `sensitive` + `egress` | block |
 | `tool-after-injection` | `tool_call` with `tainted` + `unexpected_tool` | alert (turn into block once `allowedTools` is tuned) |
@@ -155,7 +154,8 @@ Node.js / Next.js app
 | `injection-seen` | `context` with `injection` | alert |
 | `budget-exceeded` | step with `over_budget` | block |
 
-The kill switch (`guard.halt()`) sits above all rules and blocks in every mode.
+Two protections sit above any rule set and block in every mode, even with custom rules: the kill
+switch (`guard.halt()`) and planted canaries (`canary-leak`).
 
 Rules are plain data. First match wins, so put `allow` exceptions first. Any rule can carry its own
 `mode`, which is how you enforce one rule while the rest stays in shadow:
@@ -176,8 +176,10 @@ Ideas taken from Pipelock and Invariant, re-implemented to feed the same chain, 
 report — see [docs/RESEARCH.md](docs/RESEARCH.md) for what was taken, what was not, and why.
 
 **Sequence rules** — block step B only if step A happened earlier in the same task; match tool
-arguments with globs (`!` = does not match). The decision names the earlier step and the graph
-draws the link.
+arguments with globs (`!` = does not match; for an array such as several recipients the rule
+fires if any element matches — or, with `!`, if any element falls outside). E-mail addresses stay
+readable in stored tool arguments (secrets do not), so `replay` reproduces these decisions. The
+decision names the earlier step and the graph draws the link.
 
 ```ts
 {
@@ -210,7 +212,9 @@ until `guard.resume()`. Wire it to an admin button.
 for one task only.
 
 **DLP** — secrets (AWS, GitHub, LLM keys, Slack, private keys, JWT), Luhn-valid cards,
-checksum-valid IBANs, e-mails, and random-looking data smuggled in URLs to unknown domains.
+checksum-valid IBANs, e-mails, and — once a task has been injected or has read sensitive data —
+random-looking data smuggled in URLs to unknown domains (cursors, OAuth state, signed-URL
+parameters and hashed file names are ignored). Canaries are also looked for in request headers.
 
 **HTML report** — `npm run shieldtrail -- report events.jsonl --html report.html`, the
 collector's `/v1/report.html`, or the dashboard's *Download HTML report* button: one file with
