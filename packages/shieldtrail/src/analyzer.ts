@@ -66,11 +66,11 @@ export class Analyzer {
   /** Kill switch: when set, every tool call and outbound request is blocked, whatever the mode. */
   halted?: string;
 
-  /** History is only kept when some rule needs it. */
-  private readonly keepHistory: boolean;
+  constructor(readonly options: AnalyzerOptions) {}
 
-  constructor(readonly options: AnalyzerOptions) {
-    this.keepHistory = usesSequence(options.policy.rules);
+  /** History is only kept when some rule needs it (re-read each time: the policy can change live). */
+  private get keepHistory(): boolean {
+    return usesSequence(this.options.policy.rules);
   }
 
   private state(traceId: string): TraceState {

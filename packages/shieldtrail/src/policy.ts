@@ -1,5 +1,5 @@
 import { globMatch, maxSeverity, severityRank } from './detectors.js';
-import type { Decision, GuardEvent, PolicyConfig, Rule, RuleMatch } from './types.js';
+import type { Decision, GuardEvent, Policy, PolicyConfig, Rule, RuleMatch } from './types.js';
 
 /** Live tool arguments, attached by the analyzer for the duration of one evaluation (never serialised). */
 export const RAW_ARGS = Symbol('shieldtrail.rawArgs');
@@ -74,7 +74,6 @@ export function evaluate(event: GuardEvent, config: PolicyConfig, history: Guard
   return { action: mode === 'enforce' ? 'block' : 'would_block', ...base };
 }
 
-/** The attack-chain rules ShieldTrail ships with. */
 /**
  * The attack-chain rules ShieldTrail ships with. Two protections sit above any rule set and block
  * in every mode: the kill switch and planted canaries ('canary-leak').
@@ -129,3 +128,82 @@ export const defaultRules: Rule[] = [
     action: 'alert',
   },
 ];
+
+const MODES = ['off', 'shadow', 'enforce'];
+const RULE_ACTIONS = ['allow', 'alert', 'block'];
+const KINDS = ['task', 'context', 'tool_call', 'http', 'error', 'app'];
+const LABELS = ['untrusted', 'injection', 'sensitive', 'tainted', 'egress', 'unexpected_tool', 'drift', 'canary', 'over_budget'];
+const SEVERITY = ['low', 'medium', 'high', 'critical'];
+const MATCH_KEYS = ['kind', 'target', 'labels', 'notLabels', 'args', 'after', 'minSeverity'];
+
+export class PolicyError extends Error {
+  name = 'PolicyError';
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function checkMatch(m: unknown, at: string): void {
+  const fail = (msg: string) => {
+    throw new PolicyError(`${at}: ${msg}`);
+  };
+  if (!isObj(m)) fail('must be an object');
+  const match = m as Record<string, unknown>;
+  for (const k of Object.keys(match)) if (!MATCH_KEYS.includes(k)) fail(`unknown key "${k}" (expected one of ${MATCH_KEYS.join(', ')})`);
+  const list = (v: unknown) => (Array.isArray(v) ? v : [v]);
+  if (match.kind !== undefined && !list(match.kind).every((k) => KINDS.includes(k as string))) fail(`kind must be one of ${KINDS.join(', ')}`);
+  if (match.target !== undefined && !list(match.target).every((t) => typeof t === 'string')) fail('target must be a glob or a list of globs');
+  for (const key of ['labels', 'notLabels'] as const) {
+    const v = match[key];
+    if (v !== undefined && !(Array.isArray(v) && v.every((l) => LABELS.includes(l)))) fail(`${key} must be a list of: ${LABELS.join(', ')}`);
+  }
+  if (match.args !== undefined && !(isObj(match.args) && Object.values(match.args).every((v) => typeof v === 'string'))) fail('args must map argument names to glob strings');
+  if (match.minSeverity !== undefined && !SEVERITY.includes(match.minSeverity as string)) fail(`minSeverity must be one of ${SEVERITY.join(', ')}`);
+  if (match.after !== undefined) checkMatch(match.after, `${at}.after`);
+}
+
+/**
+ * Validates a policy (the parsed `shieldtrail.policy.json`) and returns it ready to use. Errors name
+ * the exact place, e.g. `rules[2].match.labels`. In `rules`, the string "defaults" stands for the
+ * built-in rules, so a file can add its own rules before or after them.
+ */
+export function parsePolicy(input: unknown): Policy {
+  if (!isObj(input)) throw new PolicyError('policy must be a JSON object');
+  const out: Policy = {};
+  if (input.mode !== undefined) {
+    if (!MODES.includes(input.mode as string)) throw new PolicyError(`mode must be one of ${MODES.join(', ')}`);
+    out.mode = input.mode as Policy['mode'];
+  }
+  if (input.allowedDomains !== undefined) {
+    if (!(Array.isArray(input.allowedDomains) && input.allowedDomains.every((d) => typeof d === 'string'))) throw new PolicyError('allowedDomains must be a list of domain globs');
+    out.allowedDomains = input.allowedDomains as string[];
+  }
+  if (input.budget !== undefined) {
+    if (!isObj(input.budget)) throw new PolicyError('budget must be an object');
+    for (const [k, v] of Object.entries(input.budget)) {
+      if (!['maxToolCalls', 'maxCallsPerTool', 'maxDurationMs'].includes(k)) throw new PolicyError(`budget: unknown key "${k}"`);
+      if (!(typeof v === 'number' && v > 0)) throw new PolicyError(`budget.${k} must be a positive number`);
+    }
+    out.budget = input.budget as Policy['budget'];
+  }
+  if (input.rules !== undefined) {
+    if (!Array.isArray(input.rules)) throw new PolicyError('rules must be a list');
+    const rules: Rule[] = [];
+    input.rules.forEach((r, i) => {
+      if (r === 'defaults') return void rules.push(...defaultRules);
+      const at = `rules[${i}]`;
+      if (!isObj(r)) throw new PolicyError(`${at}: must be a rule object or "defaults"`);
+      if (typeof r.id !== 'string' || !r.id) throw new PolicyError(`${at}: id is required`);
+      if (!RULE_ACTIONS.includes(r.action as string)) throw new PolicyError(`${at} (${r.id}): action must be one of ${RULE_ACTIONS.join(', ')}`);
+      if (r.mode !== undefined && !MODES.includes(r.mode as string)) throw new PolicyError(`${at} (${r.id}): mode must be one of ${MODES.join(', ')}`);
+      checkMatch(r.match, `${at} (${r.id}).match`);
+      rules.push(r as unknown as Rule);
+    });
+    const seen = new Set<string>();
+    for (const r of rules) {
+      if (seen.has(r.id)) throw new PolicyError(`rule id "${r.id}" is used twice`);
+      seen.add(r.id);
+    }
+    out.rules = rules;
+  }
+  return out;
+}

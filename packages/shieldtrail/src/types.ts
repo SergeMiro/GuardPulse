@@ -91,6 +91,14 @@ export interface Budget {
   maxDurationMs?: number;
 }
 
+/** What `shieldtrail.policy.json` holds; the SDK, `replay`, `check` and the dashboard read the same file. */
+export interface Policy {
+  mode?: Mode;
+  rules?: Rule[];
+  allowedDomains?: string[];
+  budget?: Budget;
+}
+
 export interface PolicyConfig {
   mode: Mode;
   rules: Rule[];

@@ -7,16 +7,59 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./postgres": { "types": "./dist/store/postgres.d.ts", "default": "./dist/store/postgres.js" },
-    "./collector": { "types": "./dist/collector.d.ts", "default": "./dist/collector.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./postgres": {
+      "types": "./dist/store/postgres.d.ts",
+      "default": "./dist/store/postgres.js"
+    },
+    "./collector": {
+      "types": "./dist/collector.d.ts",
+      "default": "./dist/collector.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
   },
-  "bin": { "shieldtrail": "./dist/cli.js" },
-  "files": ["dist", "README.md"],
-  "keywords": ["ai-agents", "mcp", "security", "prompt-injection", "opentelemetry", "attack-chain"],
-  "repository": { "type": "git", "url": "https://github.com/SergeMiro/ShieldTrail.git", "directory": "packages/shieldtrail" },
-  "engines": { "node": ">=20" },
-  "scripts": { "build": "tsc -p ." },
-  "peerDependencies": { "pg": ">=8", "@opentelemetry/api": ">=1.4" },
-  "peerDependenciesMeta": { "pg": { "optional": true }, "@opentelemetry/api": { "optional": true } }
+  "bin": {
+    "shieldtrail": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "ai-agents",
+    "mcp",
+    "security",
+    "prompt-injection",
+    "opentelemetry",
+    "attack-chain"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SergeMiro/ShieldTrail.git",
+    "directory": "packages/shieldtrail"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p ."
+  },
+  "peerDependencies": {
+    "pg": ">=8",
+    "@opentelemetry/api": ">=1.4"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    },
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  }
 }

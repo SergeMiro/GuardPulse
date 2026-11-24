@@ -2,13 +2,19 @@
 import { realpathSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { replay, type ReplayOptions, shadowReport } from './replay.js';
+import { auditRules } from './audit.js';
+import { loadPolicy, POLICY_FILE } from './node.js';
+import { defaultRules } from './policy.js';
+import { replay, shadowReport } from './replay.js';
 import { renderReport } from './report.js';
 import type { GuardEvent } from './types.js';
 
 const USAGE = `shieldtrail — attack chain intelligence for AI agents
 
-  shieldtrail replay <events.jsonl> --policy <policy.json> [--json]
+  shieldtrail check [events.jsonl] [--policy <file>] [--json]
+      Validate the policy file. With recorded events: which rules work, which never fire,
+      and which are hidden behind an earlier rule. Exit code 1 on an invalid policy.
+  shieldtrail replay <events.jsonl> [--policy <file>] [--json]
       Re-run recorded events through a policy. Exit code 1 when the policy would stop
       traffic that was allowed when it was recorded (use it as a pre-release gate).
   shieldtrail report <events.jsonl> [--json] [--html report.html]
@@ -18,7 +24,8 @@ const USAGE = `shieldtrail — attack chain intelligence for AI agents
       Start the HTTP collector the dashboard reads from. Browser access is limited to the
       hosted dashboard and http://localhost:3000 unless --allow-origin lists other origins.
 
-policy.json: { "mode": "enforce", "allowedDomains": ["api.acme.com"], "rules": [...] }`;
+The policy defaults to ./${POLICY_FILE}:
+  { "mode": "shadow", "allowedDomains": ["api.acme.com"], "rules": [{ "id": "…", "match": {…}, "action": "block" }, "defaults"] }`;
 
 async function readEvents(path: string): Promise<GuardEvent[]> {
   const text = (await readFile(path, 'utf8')).trim();
@@ -35,9 +42,34 @@ export async function runCli(argv: string[], out: (line: string) => void = conso
   const [command, file] = argv;
   const json = argv.includes('--json');
 
+  if (command === 'check') {
+    let policy;
+    try {
+      policy = loadPolicy(flag(argv, '--policy'));
+    } catch (err) {
+      out(`✗ ${(err as Error).message}`);
+      return 1;
+    }
+    const events = file && !file.startsWith('--') ? await readEvents(file) : undefined;
+    const rules = policy?.rules ?? defaultRules;
+    if (!events) {
+      out(policy ? `✓ policy is valid: ${rules.length} rules, mode ${policy.mode ?? 'shadow'}` : `No ${flag(argv, '--policy') ?? POLICY_FILE}: the built-in rules apply.`);
+      return 0;
+    }
+    const stats = auditRules(events, { mode: policy?.mode, rules, allowedDomains: policy?.allowedDomains });
+    if (json) out(JSON.stringify(stats, null, 2));
+    else {
+      out(`${rules.length} rules checked against ${events.length} recorded events`);
+      for (const s of stats) {
+        const note = s.verdict === 'active' ? `decided ${s.decided}×` : s.verdict === 'shadowed' ? `matches ${s.matched}× but "${s.shadowedBy}" always decides first: move it up or remove it` : 'never matched: check its pattern, or keep it for traffic not recorded yet';
+        out(`  ${s.verdict.padEnd(8)} ${s.ruleId}  ${note}`);
+      }
+    }
+    return 0;
+  }
+
   if (command === 'replay' && file) {
-    const policyPath = flag(argv, '--policy');
-    const policy: ReplayOptions = policyPath ? JSON.parse(await readFile(policyPath, 'utf8')) : {};
+    const policy = loadPolicy(flag(argv, '--policy')) ?? {};
     const result = replay(await readEvents(file), policy);
     if (json) out(JSON.stringify({ changed: result.changed, newlyStopped: result.newlyStopped, newlyAllowed: result.newlyAllowed }, null, 2));
     else {

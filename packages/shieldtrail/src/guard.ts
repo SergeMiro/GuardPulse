@@ -3,7 +3,7 @@ import { buildChain, type Chain } from './chain.js';
 import { redact } from './detectors.js';
 import { defaultRules } from './policy.js';
 import { type EventStore, MemoryStore } from './store/memory.js';
-import type { Budget, Decision, EventKind, Finding, GuardEvent, Mode, Rule } from './types.js';
+import type { Budget, Decision, EventKind, Finding, GuardEvent, Mode, Policy, Rule } from './types.js';
 
 export interface Exporter {
   export(event: GuardEvent): void | Promise<void>;
@@ -100,6 +100,20 @@ export class ShieldTrail {
       observers: options.observers,
       canaries: options.canaries,
     });
+  }
+
+  /** The policy in force (mode, rules, allowed domains, default budget). */
+  get policy(): Required<Policy> {
+    const { policy, allowedDomains } = this.analyzer.options;
+    return { mode: policy.mode, rules: policy.rules, allowedDomains, budget: this.options.budget ?? {} };
+  }
+
+  /** Changes the policy of a running guard, e.g. after the dashboard switched a rule to enforce. */
+  setPolicy(next: Policy): void {
+    const o = this.analyzer.options;
+    o.policy = { mode: next.mode ?? o.policy.mode, rules: next.rules ?? o.policy.rules };
+    if (next.allowedDomains) o.allowedDomains = next.allowedDomains;
+    if (next.budget) this.options.budget = next.budget;
   }
 
   /** Kill switch: from now on every tool call and outbound request of every agent is blocked. */
