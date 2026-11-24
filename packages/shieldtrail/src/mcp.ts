@@ -1,3 +1,4 @@
+import { detectInjection } from './detectors.js';
 import type { Trace } from './guard.js';
 
 /** The slice of the MCP SDK `Client` ShieldTrail wraps. */
@@ -26,6 +27,11 @@ export function guardMcpClient<C extends McpClientLike>(client: C, trace: Trace,
             server,
             tools: res.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
           });
+          // tool descriptions go straight into the model's context: a poisoned one is an injection
+          for (const tool of res.tools) {
+            const text = `${tool.description ?? ''} ${JSON.stringify(tool.inputSchema ?? {})}`;
+            if (detectInjection(text).length) await trace.context({ source: `mcp://${server}/${tool.name}`, text });
+          }
           return res;
         };
       }

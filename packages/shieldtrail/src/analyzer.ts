@@ -1,4 +1,4 @@
-import { detectInjection, detectSensitive, globMatch, hostOf } from './detectors.js';
+import { detectInjection, detectSensitive, globMatch, hostOf, toText } from './detectors.js';
 import { evaluate, RAW_ARGS } from './policy.js';
 import type { Finding, GuardEvent, Label, PolicyConfig } from './types.js';
 
@@ -151,12 +151,24 @@ export class Analyzer {
     st.history.push(event);
     if (st.history.length > 200) st.history.shift();
     // a tool's result arrives after its decision; replay keeps that order so decisions match
-    if (event.kind === 'tool_call' && (raw.result !== undefined || prior?.labels.includes('sensitive'))) this.scanResult(event, raw.result, prior);
+    if (event.kind === 'tool_call' && (raw.result !== undefined || prior?.labels.some((l) => l === 'sensitive' || l === 'injection'))) {
+      this.scanResult(event, raw.result, prior);
+    }
     return event;
   }
 
-  /** Called once a tool returned: marks the trace as having touched sensitive data. */
+  /**
+   * Called once a tool returned. A web page, an e-mail or a file read by a tool is untrusted
+   * content: hidden instructions in it taint the rest of the task, exactly like a document.
+   * Secrets or cards in it mark the task as having touched sensitive data.
+   */
   scanResult(event: GuardEvent, result: unknown, prior?: GuardEvent): void {
+    const injection = prior ? priorFindings(prior, (t) => t === 'prompt_injection') : detectInjection(toText(result));
+    if (injection.length) {
+      if (!event.labels.includes('injection')) event.labels.push('injection');
+      event.findings.push(...injection.map((f) => ({ ...f, message: `Tool output: ${f.message}` })));
+      this.state(event.traceId).taintFrom ??= event.id;
+    }
     const found = prior ? priorFindings(prior, (t) => t.startsWith('sensitive.')) : detectSensitive(result);
     event.findings.push(...found);
     // a lone email in a ticket is routine; secrets, cards and tokens make the trace sensitive

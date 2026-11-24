@@ -41,7 +41,7 @@ function title(e: GuardEvent): string {
     case 'context':
       return e.labels.includes('injection') ? `Prompt injection in ${e.target}` : `Context from ${e.target}`;
     case 'tool_call':
-      return `${e.labels.includes('unexpected_tool') ? 'Unexpected tool' : 'Tool'} ${e.target}`;
+      return `${e.labels.includes('unexpected_tool') ? 'Unexpected tool' : 'Tool'} ${e.target}${e.labels.includes('injection') ? ' returned hidden instructions' : ''}`;
     case 'http':
       return `${String(e.data.method ?? 'GET')} ${String(e.data.host ?? e.target)}`;
     case 'error':
