@@ -1,0 +1,13 @@
+{
+  "mode": "enforce",
+  "allowedDomains": ["localhost", "127.0.0.1"],
+  "rules": [
+    {
+      "id": "refund-needs-human",
+      "description": "Refunds are paid only after a person approves them",
+      "match": { "kind": "tool_call", "target": "payments.refund" },
+      "action": "ask"
+    },
+    "defaults"
+  ]
+}

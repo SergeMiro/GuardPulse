@@ -104,3 +104,10 @@ describe('dev panel server', async () => {
     }
   });
 });
+
+describe('panel source', () => {
+  it('the embedded copy matches src/panel.js (run npm run build after editing the panel)', async () => {
+    const { PANEL_JS } = await import('../src/panel-source.js');
+    expect(PANEL_JS).toBe(await readFile(new URL('../src/panel.js', import.meta.url), 'utf8'));
+  });
+});

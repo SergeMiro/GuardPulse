@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { auditRules } from './audit.js';
 import { buildChain } from './chain.js';
 import { redact } from './detectors.js';
 import { ShieldTrail } from './guard.js';
 import { shadowReport } from './replay.js';
+import { PANEL_JS } from './panel-source.js';
 import { renderReport } from './report.js';
 import { type EventStore, MemoryStore } from './store/memory.js';
 import type { EventKind, GuardEvent, Mode } from './types.js';
@@ -40,13 +40,6 @@ export interface CollectorOptions {
   };
 }
 
-const PANEL_JS = (() => {
-  try {
-    return readFileSync(new URL('./panel.js', import.meta.url), 'utf8');
-  } catch {
-    return 'console.warn("ShieldTrail: panel.js is missing from the package build")';
-  }
-})();
 
 const DASHBOARD_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ShieldTrail dashboard</title><style>html,body{margin:0;background:#0d0f17}</style></head>

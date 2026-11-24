@@ -5,3 +5,5 @@ out
 *.log
 .env*
 coverage
+next-env.d.ts
+examples/next-app/AGENTS.md

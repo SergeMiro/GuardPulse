@@ -48,7 +48,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p . && node -e \"require('fs').copyFileSync('src/panel.js','dist/panel.js')\""
+    "build": "node scripts/embed-panel.mjs && tsc -p ."
   },
   "peerDependencies": {
     "pg": ">=8",

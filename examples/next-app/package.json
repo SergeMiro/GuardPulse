@@ -1,0 +1,20 @@
+{
+  "name": "shieldtrail-next-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3100",
+    "test:e2e": "node e2e/panel-next.mjs"
+  },
+  "dependencies": {
+    "next": "16.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "shieldtrail": "*"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19"
+  }
+}
