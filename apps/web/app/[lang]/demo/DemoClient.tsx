@@ -4,16 +4,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChainGraph } from '../../components/ChainGraph';
 import { dicts, type Lang } from '../../i18n';
 
-const MODES: DemoMode[] = ['off', 'shadow', 'enforce'];
-const MODE_COLOR = { off: 'var(--red)', shadow: '#ffb547', enforce: 'var(--green)' };
+// Two choices only: the difference is the whole point. Watch-only mode is explained on the other pages.
+type Choice = Extract<DemoMode, 'off' | 'enforce'>;
 const STEP_KEYS: StepKey[] = ['ticket', 'attachment', 'injection', 'query', 'exfil', 'reply'];
-const STEP_MS = 1100;
+const STEP_MS = 1000;
+const ICON: Record<string, string> = { ok: '✓', alert: '!', would_block: '!', blocked: '✕', leaked: '✕' };
 
 export function DemoClient({ lang }: { lang: Lang }) {
   const t = dicts[lang].demo;
-  const [mode, setMode] = useState<DemoMode>('enforce');
+  const [mode, setMode] = useState<Choice | null>(null);
   const [result, setResult] = useState<DemoResult | null>(null);
   const [shown, setShown] = useState(0);
+  const [graphOpen, setGraphOpen] = useState(false);
   const timers = useRef<number[]>([]);
   const stop = () => {
     timers.current.forEach(clearTimeout);
@@ -24,19 +26,14 @@ export function DemoClient({ lang }: { lang: Lang }) {
   const playing = result !== null && shown < result.steps.length;
   const done = result !== null && shown >= result.steps.length;
 
-  const play = async () => {
-    stop();
-    setShown(0);
-    const r = await runScenario(mode);
-    setResult(r);
-    r.steps.forEach((_, i) => timers.current.push(window.setTimeout(() => setShown(i + 1), STEP_MS * (i + 0.4))));
-  };
-
-  const choose = (m: DemoMode) => {
+  const play = async (m: Choice) => {
     stop();
     setMode(m);
     setResult(null);
     setShown(0);
+    const r = await runScenario(m);
+    setResult(r);
+    r.steps.forEach((_, i) => timers.current.push(window.setTimeout(() => setShown(i + 1), STEP_MS * (i + 0.5))));
   };
 
   const chain = result?.chain;
@@ -49,130 +46,94 @@ export function DemoClient({ lang }: { lang: Lang }) {
 
   const detail = (key: StepKey) => {
     const s = t.steps[key] as Record<string, string>;
-    return s[mode] ?? (mode === 'off' ? s.off : s.on);
+    return s[mode ?? 'off'] ?? (mode === 'enforce' ? s.on : s.off);
   };
-  const leakedBytes = result?.leaked.reduce((n, l) => n + l.body.length, 0) ?? 0;
-  const outcome = !done ? '…' : mode === 'enforce' ? t.outcome.blocked : mode === 'shadow' ? t.outcome.recorded : t.outcome.leaked;
+  const other: Choice = mode === 'enforce' ? 'off' : 'enforce';
+  const advice = chain?.events.find((e) => e.decision?.action === 'block')?.decision?.recommendation;
 
   return (
     <>
-      <h2 className="sr">{t.storyTitle}</h2>
-      <div className="story-grid">
-        {t.story.map((s, i) => (
-          <div key={s.k} className="story-card">
-            <small>{s.k}</small>
-            <p>{s.t}</p>
-            {i === 1 && <div className="hidden-text">“{HIDDEN_INSTRUCTION}”</div>}
-          </div>
-        ))}
+      <div className="demo-setup">
+        <p>
+          <b>{t.story[0].k}.</b> {t.story[0].t}
+        </p>
+        <p>
+          <b>{t.story[1].k}.</b> {t.story[1].t}
+        </p>
+        <blockquote className="hidden-text">“{HIDDEN_INSTRUCTION}”</blockquote>
+        <p>
+          <b>{t.story[2].k}.</b> {t.story[2].t}
+        </p>
       </div>
 
-      <p className="step-label">{t.modeTitle}</p>
-      <div className="modes" role="group" aria-label={t.modeTitle}>
-        {MODES.map((m) => (
-          <button key={m} type="button" className="mode-card" aria-pressed={mode === m} onClick={() => choose(m)}>
-            <b>
-              <i className="dot" style={{ background: MODE_COLOR[m] }} />
-              {t.modes[m].name}
-            </b>
-            <span>{t.modes[m].desc}</span>
+      <p className="demo-ask">{t.choose}</p>
+      <div className="demo-choice" role="group" aria-label={t.choose}>
+        {(['off', 'enforce'] as Choice[]).map((m) => (
+          <button key={m} type="button" className={`choice choice-${m}`} aria-pressed={mode === m} disabled={playing} onClick={() => play(m)}>
+            <span aria-hidden="true">▶</span>
+            <b>{m === 'off' ? t.btnOff : t.btnOn}</b>
+            <small>{m === 'off' ? t.modes.off.desc : t.modes.enforce.desc}</small>
           </button>
         ))}
-        <button type="button" className="btn btn-primary btn-lg" onClick={play} disabled={playing}>
-          {playing ? t.playing : done ? `↻ ${t.replay}` : `▶ ${t.play}`}
-        </button>
       </div>
 
-      {done && (
+      <ol className="tl" aria-live="polite">
+        {STEP_KEYS.map((key, i) => {
+          const step = result?.steps[i];
+          const isDone = step !== undefined && i < shown;
+          const status = isDone ? step.status : 'todo';
+          return (
+            <li key={key} className={`tl-step tl-${status}${isDone && i === shown - 1 ? ' tl-current' : ''}`}>
+              <span className="tl-icon" aria-hidden="true">{isDone ? ICON[step.status] : i + 1}</span>
+              <div className="tl-body">
+                <div className="tl-title">
+                  <b>{t.steps[key].title}</b>
+                  {isDone && <span className={`status st-${step.status}`}>{t.status[step.status]}</span>}
+                </div>
+                {isDone && <p>{detail(key)}</p>}
+                {isDone && step.status === 'leaked' && result!.leaked[0] && (
+                  <div className="leak-box">
+                    <b>{t.leakedLabel}</b>
+                    <br />
+                    {result!.leaked[0].body}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
+      {!mode && <p className="demo-hint">{t.idle}</p>}
+
+      {done && mode && (
         <div className={`result result-${mode}`} role="status">
-          <div className="big" aria-hidden="true">{mode === 'enforce' ? '✓' : mode === 'shadow' ? '◐' : '✕'}</div>
+          <div className="big" aria-hidden="true">{mode === 'enforce' ? '✓' : '✕'}</div>
           <div>
             <h2>{t.result[mode].title}</h2>
             <p>{t.result[mode].text}</p>
-            <small>{t.result.tryNext}</small>
+            <button type="button" className="btn btn-ghost" style={{ marginTop: 12 }} onClick={() => play(other)}>
+              {mode === 'off' ? t.compareOn : t.compareOff}
+            </button>
           </div>
         </div>
       )}
 
-      <div className="player">
-        <div className="panel">
-          <div className="panel-h">
-            <span>{t.stepsTitle}</span>
-            <span>{Math.min(shown, 6)}/6</span>
-          </div>
-          <ol className="steps-list">
-            {STEP_KEYS.map((key, i) => {
-              const step = result?.steps[i];
-              const isDone = step !== undefined && i < shown;
-              return (
-                <li key={key} className={`step-item${isDone ? ' done' : ''}${isDone && i === shown - 1 ? ' current' : ''}`}>
-                  <span className="num">{i + 1}</span>
-                  <div>
-                    <b>
-                      {t.steps[key].title}
-                      {isDone && <span className={`status st-${step.status}`}>{t.status[step.status]}</span>}
-                    </b>
-                    {isDone && <p>{detail(key)}</p>}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-
-        <div className="panel">
-          <div className="panel-h">
-            <span>{t.graphTitle}</span>
-            {chain && <span>trace {chain.traceId.slice(0, 10)}…</span>}
-          </div>
-          <div className="graph-wrap">
-            {chain ? (
-              <ChainGraph chain={chain} visibleIds={visibleIds} currentId={currentId} />
-            ) : (
-              <div className="graph-empty">{result?.mode === 'off' ? t.graphEmptyOff : t.graphEmptyIdle}</div>
-            )}
-          </div>
-          {done && (
-            <div className="kpis">
-              <div className="kpi">
-                <small>{t.kpi.outcome}</small>
-                <b style={{ color: mode === 'enforce' ? 'var(--green)' : 'var(--red)' }}>{outcome}</b>
-              </div>
-              <div className="kpi">
-                <small>{t.kpi.severity}</small>
-                <b className={chain ? `sev-${chain.severity}` : ''}>{chain?.severity ?? '—'}</b>
-              </div>
-              <div className="kpi">
-                <small>{t.kpi.events}</small>
-                <b>{chain?.events.length ?? 0}</b>
-              </div>
-              <div className="kpi">
-                <small>{t.kpi.leaked}</small>
-                <b style={{ color: leakedBytes ? 'var(--red)' : 'var(--green)' }}>{leakedBytes} B</b>
-              </div>
-            </div>
-          )}
-          {done && leakedBytes > 0 && (
-            <div className="leak-box">
-              <b>{t.leakedLabel}</b>
-              <br />
-              {result!.leaked[0].body}
-            </div>
-          )}
-          <div className="legend" aria-label={t.legendTitle}>
-            {t.legend.map(([cls, text]) => (
-              <span key={cls}>
-                <i className={`lg-${cls}`} />
-                {text}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
       {done && chain && (
-        <details className="details">
+        <details className="details" onToggle={(e) => setGraphOpen((e.target as HTMLDetailsElement).open)}>
           <summary>{t.detailsTitle}</summary>
+          <p className="muted-small">{t.detailsLead}</p>
+          <div className="panel">
+            <div className="graph-wrap">{graphOpen && <ChainGraph chain={chain} visibleIds={visibleIds} currentId={currentId} />}</div>
+            <div className="legend" aria-label={t.legendTitle}>
+              {t.legend.map(([cls, text]) => (
+                <span key={cls}>
+                  <i className={`lg-${cls}`} />
+                  {text}
+                </span>
+              ))}
+            </div>
+          </div>
           <div className="details-body">
             <div>
               <h3>{t.narrative}</h3>
@@ -181,12 +142,10 @@ export function DemoClient({ lang }: { lang: Lang }) {
                   <li key={line}>{line}</li>
                 ))}
               </ol>
-              {chain.events.find((e) => e.decision?.recommendation && e.decision.action !== 'allow' && e.decision.action !== 'alert')?.decision?.recommendation && (
+              {advice && (
                 <>
                   <h3 style={{ marginTop: 18 }}>{t.recommendation}</h3>
-                  <p style={{ margin: 0, fontSize: 14 }}>
-                    {chain.events.find((e) => e.decision?.action === 'block' || e.decision?.action === 'would_block')?.decision?.recommendation}
-                  </p>
+                  <p style={{ margin: 0, fontSize: 14 }}>{advice}</p>
                 </>
               )}
             </div>
@@ -207,7 +166,7 @@ export function DemoClient({ lang }: { lang: Lang }) {
           </div>
         </details>
       )}
-      {!(done && chain) && <div style={{ height: 50 }} />}
+      <div style={{ height: 60 }} />
     </>
   );
 }

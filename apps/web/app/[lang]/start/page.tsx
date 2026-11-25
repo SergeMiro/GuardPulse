@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { Cmd } from '../../components/Cmd';
 import { Footer, Nav } from '../../components/Nav';
 import { dicts, type Lang } from '../../i18n';
@@ -102,12 +101,6 @@ export default async function StartPage({ params }: { params: Promise<{ lang: La
               {dash.blocks.map((b) => (
                 <Cmd key={b.code} label={b.label} code={b.code} copy={t.copy} copied={t.copied} />
               ))}
-              <Link className="btn btn-primary" href={`/${lang}/dashboard/?api=http://127.0.0.1:4319`}>
-                {dash.open} →
-              </Link>
-              <p className="note">
-                {dash.note} <code>{dash.noteCode}</code> {dash.noteEnd}
-              </p>
             </div>
           </div>
 

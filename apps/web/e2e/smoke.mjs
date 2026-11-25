@@ -33,9 +33,8 @@ const check = (cond, msg) => {
 const noHScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 const shot = (page, name) => shots && page.screenshot({ path: `${shots}/${name}.png`, fullPage: true });
 
-async function playDemo(page, modeName, resultClass) {
-  await page.getByRole('button', { name: modeName }).click();
-  await page.getByRole('button', { name: /▶|↻/ }).click();
+async function playDemo(page, buttonName, resultClass) {
+  await page.getByRole('button', { name: buttonName }).first().click(); // one click plays
   await page.locator(resultClass).waitFor({ timeout: 15000 });
 }
 
@@ -47,7 +46,7 @@ try {
   await page.waitForURL(/\/en\/$/);
   check(true, 'root redirects an English browser to /en/');
   check((await page.locator('h1').textContent()).includes('leaking your data'), 'English landing renders');
-  check((await page.locator('.feature').count()) === 12, 'landing lists the 12 protections');
+  check((await page.locator('.feature').count()) === 6, 'landing lists 6 benefits in plain words');
   check(await noHScroll(page), 'no horizontal scroll on landing (1280px)');
 
   // theme toggle persists across reloads
@@ -77,18 +76,23 @@ try {
 
   await page.goto(`${base}/en/demo/`);
   check((await page.locator('.hidden-text').textContent()).includes('ignore all previous instructions'), 'demo shows the hidden instruction');
-  await playDemo(page, /Blocking/, '.result-enforce');
-  check((await page.locator('.step-item.done').count()) === 6, 'all six steps were played');
-  check((await page.locator('.gp-node.a-block').count()) === 1, 'blocking mode: one blocked node in the graph');
-  check((await page.locator('.react-flow__node-event').count()) === 7, 'graph shows the whole chain at the end');
+  check((await page.locator('.choice').count()) === 2, 'demo offers two choices: without and with ShieldTrail');
+  check((await page.locator('.tl-todo').count()) === 6, 'the six steps are listed before playing');
+  await playDemo(page, /With ShieldTrail/, '.result-enforce');
+  check((await page.locator('.tl-step:not(.tl-todo)').count()) === 6, 'all six steps were played');
+  check((await page.locator('.tl-blocked').count()) === 1 && (await page.locator('.tl-blocked').textContent()).includes('Blocked'), 'with ShieldTrail: one step is blocked');
+  check((await page.locator('.react-flow__node-event').count()) === 0, 'the graph stays folded away until asked for');
+  await page.locator('.details > summary').click();
+  await page.locator('.react-flow__node-event').nth(6).waitFor({ timeout: 5000 });
+  check((await page.locator('.gp-node.a-block').count()) === 1, 'technical details: the graph shows the blocked node');
   await shot(page, 'demo-en-enforce');
-  await playDemo(page, /No protection/, '.result-off');
-  check((await page.locator('.leak-box').textContent()).includes('4111 1111 1111 1111'), 'no protection: the card numbers leak');
-  await playDemo(page, /Watch only/, '.result-shadow');
-  check((await page.locator('.gp-node.a-would_block').count()) === 1, 'watch-only mode: the egress node says would block');
+  await page.getByRole('button', { name: /Compare: play it without ShieldTrail/ }).click();
+  await page.locator('.result-off').waitFor({ timeout: 15000 });
+  check((await page.locator('.leak-box').textContent()).includes('4111 1111 1111 1111'), 'without ShieldTrail: the card numbers leak');
+  await shot(page, 'demo-en-off');
 
   await page.goto(`${base}/fr/demo/`);
-  await playDemo(page, /Blocage/, '.result-enforce');
+  await playDemo(page, /Avec ShieldTrail/, '.result-enforce');
   check((await page.locator('.result h2').textContent()).includes('ShieldTrail a bloqué le vol'), 'French demo result is translated');
   await shot(page, 'demo-fr-enforce');
 
@@ -134,7 +138,7 @@ try {
   check(await noHScroll(phone), 'no horizontal scroll on landing (390px)');
   await shot(phone, 'landing-fr-390');
   await phone.goto(`${base}/fr/demo/`);
-  await playDemo(phone, /Blocage/, '.result-enforce');
+  await playDemo(phone, /Avec ShieldTrail/, '.result-enforce');
   check(await noHScroll(phone), 'no horizontal scroll on demo (390px)');
   await shot(phone, 'demo-fr-390');
   await phone.goto(`${base}/fr/start/`);
