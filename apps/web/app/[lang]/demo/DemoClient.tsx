@@ -10,6 +10,17 @@ const STEP_KEYS: StepKey[] = ['ticket', 'attachment', 'injection', 'query', 'exf
 const STEP_MS = 1000;
 const ICON: Record<string, string> = { ok: '✓', alert: '!', would_block: '!', blocked: '✕', leaked: '✕' };
 
+/** The stolen rows as a person reads them ("ana@shop.com — 4111 1111 1111 1111"), raw text otherwise. */
+function leakRows(body: string): string[] {
+  try {
+    const rows = JSON.parse(body);
+    if (Array.isArray(rows)) return rows.map((r) => (r && typeof r === 'object' ? Object.values(r).join(' — ') : String(r)));
+  } catch {
+    // not JSON: show it as it was sent
+  }
+  return [body];
+}
+
 export function DemoClient({ lang }: { lang: Lang }) {
   const t = dicts[lang].demo;
   const [mode, setMode] = useState<Choice | null>(null);
@@ -94,8 +105,11 @@ export function DemoClient({ lang }: { lang: Lang }) {
                 {isDone && step.status === 'leaked' && result!.leaked[0] && (
                   <div className="leak-box">
                     <b>{t.leakedLabel}</b>
-                    <br />
-                    {result!.leaked[0].body}
+                    <ul className="leak-rows">
+                      {leakRows(result!.leaked[0].body).map((r) => (
+                        <li key={r}>{r}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>

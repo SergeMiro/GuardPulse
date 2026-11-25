@@ -131,25 +131,6 @@ export function DashboardClient({ lang }: { lang: Lang }) {
 
   return (
     <>
-      <form
-        className="connect"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setSelected('');
-          setApi(draft.replace(/\/$/, ''));
-        }}
-      >
-        <b>{t.connectTitle}</b>
-        <span>{t.connectText}</span>
-        <label htmlFor="api" className="sr">Collector URL</label>
-        <input id="api" value={draft} onChange={(e) => setDraft(e.target.value)} />
-        <button className="btn btn-ghost btn-sm" type="submit">{t.connect}</button>
-        {api && (
-          <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setSelected(''); setApi(''); }}>
-            {t.backDemo}
-          </button>
-        )}
-      </form>
       <div className="src">
         <span className="dot" style={{ background: api ? (error ? 'var(--red)' : 'var(--green)') : 'var(--violet)' }} />
         {api ? `${t.sourceLive} ${api}` : t.sourceDemo}
@@ -178,8 +159,8 @@ export function DashboardClient({ lang }: { lang: Lang }) {
               {chains.map((c) => (
                 <button key={c.traceId} type="button" className="chain-row" aria-current={c.traceId === selected} onClick={() => setSelected(c.traceId)}>
                   <span className="who">{c.actor}</span>
-                  <span className={`sev-${c.severity}`} style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
-                    {c.blocked ? t.badge.blocked : c.wouldBlock ? t.badge.would : c.severity}
+                  <span className={`status st-${c.blocked ? 'blocked' : c.wouldBlock ? 'would_block' : c.severity === 'low' ? 'ok' : 'alert'}`}>
+                    {c.blocked ? t.badge.blocked : c.wouldBlock ? t.badge.would : c.severity === 'low' ? t.badge.ok : t.badge.warn}
                   </span>
                   <small>{c.task ?? '—'}</small>
                   <small>{c.events} {t.events}</small>
@@ -207,10 +188,20 @@ export function DashboardClient({ lang }: { lang: Lang }) {
             <span>{chain ? `${chain.actor} · ${chain.task ?? ''}` : t.select}</span>
             {chain && <span className={`sev-${chain.severity}`}>{chain.severity}</span>}
           </div>
+          {chain && chain.narrative.length > 0 && (
+            <div className="panel-b dash-story">
+              <h3>{t.story}</h3>
+              <ol>
+                {chain.narrative.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ol>
+            </div>
+          )}
           <div className="graph-wrap">{chain ? <ChainGraph chain={chain} /> : <div className="graph-empty">{t.select}</div>}</div>
           {chain && (
-            <div className="panel-b">
-              <h3 style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--dim)' }}>{t.decisions}</h3>
+            <details className="panel-b dash-steps">
+              <summary>{t.decisions}</summary>
               <div className="table-wrap">
                 <table>
                   <thead><tr>{t.cols.map((c) => <th key={c} scope="col">{c}</th>)}</tr></thead>
@@ -226,10 +217,32 @@ export function DashboardClient({ lang }: { lang: Lang }) {
                   </tbody>
                 </table>
               </div>
-            </div>
+            </details>
           )}
         </div>
       </div>
+      <details className="details connect-details" open={api !== ''}>
+        <summary>{t.connectTitle}</summary>
+        <form
+        className="connect"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSelected('');
+          setApi(draft.replace(/\/$/, ''));
+        }}
+      >
+        <b>{t.connectTitle}</b>
+        <span>{t.connectText}</span>
+        <label htmlFor="api" className="sr">Collector URL</label>
+        <input id="api" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <button className="btn btn-ghost btn-sm" type="submit">{t.connect}</button>
+        {api && (
+          <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setSelected(''); setApi(''); }}>
+            {t.backDemo}
+          </button>
+        )}
+      </form>
+      </details>
     </>
   );
 }
