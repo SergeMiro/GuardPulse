@@ -43,11 +43,17 @@ export function interceptFetch(): void {
 export const POLICY_FILE = 'shieldtrail.policy.json';
 
 /**
+ * Absolute path of a policy file. The comment tells Next.js (Turbopack) not to trace the whole project
+ * for this run-time path: the file is read at run time, or imported and passed as `policy`.
+ */
+const policyPath = (path?: string) => resolve(/* turbopackIgnore: true */ process.cwd(), path ?? POLICY_FILE);
+
+/**
  * Reads and validates the policy file. The default file is optional (undefined when absent); a path
  * given explicitly must exist. Errors name the file and the place in it.
  */
 export function loadPolicy(path?: string): Policy | undefined {
-  const file = resolve(path ?? POLICY_FILE);
+  const file = policyPath(path);
   if (!existsSync(file)) {
     if (path) throw new PolicyError(`${file}: file not found`);
     return undefined;
@@ -62,7 +68,7 @@ export function loadPolicy(path?: string): Policy | undefined {
 /** Writes a policy back (validated first, so a bad edit never lands on disk). */
 export function savePolicy(policy: Policy, path = POLICY_FILE): void {
   parsePolicy(JSON.parse(JSON.stringify(policy)));
-  writeFileSync(resolve(path), `${JSON.stringify(policy, null, 2)}\n`);
+  writeFileSync(policyPath(path), `${JSON.stringify(policy, null, 2)}\n`);
 }
 
 /**
@@ -70,7 +76,7 @@ export function savePolicy(policy: Policy, path = POLICY_FILE): void {
  * rest of it: only `ruleModes` changes, so hand-written rules and comments-as-ids stay as they are.
  */
 export function setRuleMode(ruleId: string, mode: Mode, path?: string): Policy {
-  const file = resolve(path ?? POLICY_FILE);
+  const file = policyPath(path);
   const raw = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>) : {};
   raw.ruleModes = { ...((raw.ruleModes as Record<string, Mode> | undefined) ?? {}), [ruleId]: mode };
   const parsed = parsePolicy(raw); // never write a file the next start could not read
@@ -189,7 +195,7 @@ export function createGuard(options: NodeGuardOptions = {}): ShieldTrail {
   if (!file && !rest.rules && process.env.NODE_ENV === 'production' && !warnedNoPolicy) {
     warnedNoPolicy = true;
     console.warn(
-      `ShieldTrail: no policy found (${resolve(typeof policyFile === 'string' ? policyFile : POLICY_FILE)}) and no rules in code, ` +
+      `ShieldTrail: no policy found (${policyPath(typeof policyFile === 'string' ? policyFile : undefined)}) and no rules in code, ` +
         'so the built-in rules run in shadow mode. In a bundled deployment, import the file and pass it: createGuard({ policy }).',
     );
   }
