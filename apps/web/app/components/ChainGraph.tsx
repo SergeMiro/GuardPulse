@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 const LANES = ['task', 'context', 'tool_call', 'http', 'other'] as const;
 const LANE_TITLE = { task: 'agent', context: 'input', tool_call: 'tools / MCP', http: 'network', other: 'app' };
 const laneOf = (kind: string) => (LANES.includes(kind as never) ? kind : 'other') as (typeof LANES)[number];
-const EDGE = { taint: '#ff3d7f', data: '#f59e0b', rule: '#8b5cf6', sequence: 'var(--edge-seq)' };
+const EDGE = { taint: '#ff5c7a', data: '#f59e0b', rule: '#a78bfa', sequence: 'var(--edge-seq)' };
 
 const ACTION_STYLE: Record<string, { bg: string; fg: string }> = {
   block: { bg: '#ff5a5f', fg: '#fff' },

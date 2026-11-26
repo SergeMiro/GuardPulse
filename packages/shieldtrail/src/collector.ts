@@ -44,7 +44,7 @@ export interface CollectorOptions {
 
 
 const DASHBOARD_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ShieldTrail dashboard</title><style>html,body{margin:0;background:#0d0f17}</style></head>
+<title>ShieldTrail dashboard</title><style>html,body{margin:0;background:#0a0e1c}</style></head>
 <body><script src="/panel.js" data-full></script></body></html>`;
 
 const isLoopbackOrigin = (o: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(o);

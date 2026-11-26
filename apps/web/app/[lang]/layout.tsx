@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google';
 import { notFound } from 'next/navigation';
 import { THEME_SCRIPT } from '../components/ThemeToggle';
 import { dicts, isLang, LANGS } from '../i18n';
@@ -7,10 +7,11 @@ import '../globals.css';
 
 const sans = Inter({ subsets: ['latin'], variable: '--font-sans' });
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['400', '500', '700'] });
+const display = Space_Grotesk({ subsets: ['latin'], variable: '--font-display', weight: ['500', '600', '700'] });
 
 export const dynamicParams = false;
 export const generateStaticParams = () => LANGS.map((lang) => ({ lang }));
-export const viewport: Viewport = { themeColor: [{ media: '(prefers-color-scheme: dark)', color: '#07070d' }, { media: '(prefers-color-scheme: light)', color: '#f7f7fb' }] };
+export const viewport: Viewport = { themeColor: [{ media: '(prefers-color-scheme: dark)', color: '#05070f' }, { media: '(prefers-color-scheme: light)', color: '#f5f7fa' }] };
 
 export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }): Promise<Metadata> {
   const { lang } = await params;
@@ -22,7 +23,7 @@ export default async function LangLayout({ children, params }: { children: React
   const { lang } = await params;
   if (!isLang(lang)) notFound();
   return (
-    <html lang={lang} className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html lang={lang} className={`${sans.variable} ${mono.variable} ${display.variable}`} suppressHydrationWarning>
       <body>
         {/* first thing in <body>: applies a saved theme before paint; in <head> it raced hydration */}
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} suppressHydrationWarning />

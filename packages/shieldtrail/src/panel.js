@@ -20,8 +20,8 @@
   const POLL_MS = 1500;
 
   const C = {
-    bg: '#12141f', card: '#191c2b', line: '#2a2e44', text: '#e9e9f2', muted: '#9b9db3',
-    ok: '#22c55e', alert: '#eab308', would: '#f59e0b', block: '#ef4444', ask: '#a78bfa', accent: '#2dd4bf',
+    bg: '#0a0e1c', card: '#0d1224', line: '#1f2945', text: '#eaeef8', muted: '#94a0be',
+    ok: '#34d399', alert: '#fbbf24', would: '#22d3ee', block: '#ff5c7a', ask: '#a78bfa', accent: '#5b8cff',
   };
   const ACTION = {
     allow: { color: C.ok, label: 'allowed' },
@@ -80,7 +80,7 @@
   .step .why { grid-column: 2; color: ${C.muted}; font-size: 12px; }
   .ask { border: 1px solid ${C.ask}; border-radius: 11px; padding: 10px; margin-bottom: 10px; background: ${C.card}; }
   .ask .acts { display: flex; gap: 8px; margin-top: 8px; }
-  pre { margin: 6px 0 0; padding: 6px 8px; background: #0b0c14; border-radius: 7px; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.4 ui-monospace, Menlo, monospace; color: ${C.muted}; max-height: 120px; overflow: auto; }
+  pre { margin: 6px 0 0; padding: 6px 8px; background: #05070f; border-radius: 7px; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.4 ui-monospace, Menlo, monospace; color: ${C.muted}; max-height: 120px; overflow: auto; }
   .rule { border-bottom: 1px solid ${C.line}; padding: 8px 0; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
   .rule .d { grid-column: 1; color: ${C.muted}; font-size: 12px; }
   .seg { display: inline-flex; border: 1px solid ${C.line}; border-radius: 8px; overflow: hidden; grid-row: span 2; }
