@@ -1,19 +1,14 @@
-/** A shield with a trail of linked events inside: the last one is the step that gets stopped. */
-export function LogoMark({ size = 26 }: { size?: number }) {
+/** A shield with a trail of linked events inside: the last one, in red, is the step that gets stopped. */
+export function LogoMark({ size = 30 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <defs>
-        <linearGradient id="st-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#ff3d7f" />
-          <stop offset="1" stopColor="#8b5cf6" />
-        </linearGradient>
-      </defs>
-      <path d="M16 2.5 27 7v8.2c0 6.9-4.6 12.2-11 14.3C9.6 27.4 5 22.1 5 15.2V7z" fill="none" stroke="url(#st-g)" strokeWidth="2.2" strokeLinejoin="round" />
-      <path d="M10.5 20.5 14 13.5l3.5 5 4-8" fill="none" stroke="currentColor" strokeOpacity="0.55" strokeWidth="1.6" strokeDasharray="2 2" strokeLinecap="round" />
-      <circle cx="10.5" cy="20.5" r="1.9" fill="#8b5cf6" />
-      <circle cx="14" cy="13.5" r="1.9" fill="#8b5cf6" />
-      <circle cx="17.5" cy="18.5" r="1.9" fill="#ff3d7f" />
-      <circle cx="21.5" cy="10.5" r="2.5" fill="#ff3d7f" />
+    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true" className="logo-mark">
+      <path d="M20 3 34 8.5V19c0 9-6 15.5-14 18-8-2.5-14-9-14-18V8.5Z" fill="var(--pulse-soft)" stroke="var(--pulse)" strokeWidth="2.4" strokeLinejoin="round" />
+      <path d="M12.5 25 17 17.5l5.5 5L27 14" fill="none" stroke="var(--dim)" strokeWidth="1.6" strokeDasharray="2 2.2" strokeLinecap="round" />
+      <circle cx="12.5" cy="25" r="2.2" fill="var(--pulse)" />
+      <circle cx="17" cy="17.5" r="2.2" fill="var(--pulse)" />
+      <circle cx="22.5" cy="22.5" r="2.2" fill="var(--pulse)" />
+      <circle cx="27" cy="14" r="5" fill="none" stroke="var(--red)" strokeOpacity="0.4" strokeWidth="1.4" />
+      <circle cx="27" cy="14" r="2.8" fill="var(--red)" />
     </svg>
   );
 }
